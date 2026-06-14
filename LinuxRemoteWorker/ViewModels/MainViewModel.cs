@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LinuxRemoteWorker.Core;
+using LinuxRemoteWorker.Modules.Postgres;
 using LinuxRemoteWorker.Modules.SystemInfo;
 
 namespace LinuxRemoteWorker.ViewModels;
@@ -11,6 +12,7 @@ public partial class MainViewModel : BaseViewModel
 
     public ConnectViewModel ConnectVM { get; }
     public SystemInfoViewModel SystemInfoVM { get; }
+    public PostgresViewModel PostgresVM { get; }
 
     [ObservableProperty] private BaseViewModel? _activeModule;
     [ObservableProperty] private bool _isConnected;
@@ -21,6 +23,7 @@ public partial class MainViewModel : BaseViewModel
 
         ConnectVM = new ConnectViewModel(_ssh);
         SystemInfoVM = new SystemInfoViewModel(_ssh);
+        PostgresVM = new PostgresViewModel(_ssh);
 
         ConnectVM.ConnectedSuccessfully += OnConnected;
     }
