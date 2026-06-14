@@ -1,0 +1,54 @@
+<UserControl x:Class="LinuxRemoteWorker.Modules.SystemInfo.SystemInfoView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:views="clr-namespace:LinuxRemoteWorker.Views"
+             xmlns:conv="clr-namespace:LinuxRemoteWorker.Converters">
+    <UserControl.Resources>
+        <conv:InvertBoolConverter x:Key="InvertBoolConverter"/>
+        <conv:ErrorColorConverter x:Key="ErrorColorConverter"/>
+    </UserControl.Resources>
+
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <DockPanel Grid.Row="0" Margin="0 0 0 20">
+            <TextBlock Text="System Information" Foreground="White" FontSize="22" FontWeight="SemiBold" VerticalAlignment="Center"/>
+            <Button Content="↻  Refresh" Command="{Binding RefreshCommand}" DockPanel.Dock="Right"
+                    Padding="14 8" Background="#3D5AFE" Foreground="White" BorderThickness="0"
+                    FontSize="13" Cursor="Hand"
+                    IsEnabled="{Binding IsBusy, Converter={StaticResource InvertBoolConverter}}"/>
+        </DockPanel>
+
+        <!-- Info cards -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <views:InfoCard Grid.Row="0" Grid.Column="0" Label="Hostname" Value="{Binding Hostname}" Margin="0 0 8 8"/>
+            <views:InfoCard Grid.Row="0" Grid.Column="1" Label="IP Address" Value="{Binding IpAddress}" Margin="8 0 0 8"/>
+            <views:InfoCard Grid.Row="1" Grid.Column="0" Label="OS" Value="{Binding Os}" Margin="0 0 8 8"/>
+            <views:InfoCard Grid.Row="1" Grid.Column="1" Label="Kernel" Value="{Binding Kernel}" Margin="8 0 0 8"/>
+            <views:InfoCard Grid.Row="2" Grid.Column="0" Label="Uptime" Value="{Binding Uptime}" Margin="0 0 8 8"/>
+            <views:InfoCard Grid.Row="2" Grid.Column="1" Label="CPU Usage" Value="{Binding CpuUsage}" Margin="8 0 0 8"/>
+            <views:InfoCard Grid.Row="3" Grid.Column="0" Label="Memory" Value="{Binding MemoryInfo}" Margin="0 0 8 8"/>
+            <views:InfoCard Grid.Row="3" Grid.Column="1" Label="Disk (/)" Value="{Binding DiskInfo}" Margin="8 0 0 8"/>
+        </Grid>
+
+        <!-- Status bar -->
+        <TextBlock Grid.Row="2" Text="{Binding StatusMessage}" Margin="0 12 0 0" FontSize="12"
+                   Foreground="{Binding HasError, Converter={StaticResource ErrorColorConverter}}"/>
+    </Grid>
+</UserControl>
