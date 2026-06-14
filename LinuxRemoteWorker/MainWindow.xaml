@@ -5,6 +5,7 @@
         xmlns:views="clr-namespace:LinuxRemoteWorker.Views"
         xmlns:sysinfo="clr-namespace:LinuxRemoteWorker.Modules.SystemInfo"
         xmlns:pg="clr-namespace:LinuxRemoteWorker.Modules.Postgres"
+        xmlns:fw="clr-namespace:LinuxRemoteWorker.Modules.Firewall"
         xmlns:conv="clr-namespace:LinuxRemoteWorker.Converters"
         Title="Linux Remote Worker" Height="700" Width="1100"
         Background="#13131F" WindowStartupLocation="CenterScreen">
@@ -23,6 +24,9 @@
         </DataTemplate>
         <DataTemplate DataType="{x:Type pg:PostgresViewModel}">
             <pg:PostgresView/>
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type fw:FirewallViewModel}">
+            <fw:FirewallView/>
         </DataTemplate>
 
         <!-- Sidebar nav button -->
@@ -107,6 +111,14 @@
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="⚙" Margin="0 0 8 0"/>
                             <TextBlock Text=".NET Services"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Command="{Binding NavigateToCommand}" CommandParameter="{Binding FirewallVM}"
+                            IsEnabled="{Binding IsConnected}"
+                            Style="{StaticResource NavButtonStyle}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="🛡" Margin="0 0 8 0"/>
+                            <TextBlock Text="Firewall"/>
                         </StackPanel>
                     </Button>
                     <Button IsEnabled="False" Style="{StaticResource NavButtonStyle}">
