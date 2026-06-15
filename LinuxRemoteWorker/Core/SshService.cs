@@ -27,11 +27,20 @@ public class SshService : IDisposable
         _ssh = new SshClient(connectionInfo);
         _sftp = new SftpClient(connectionInfo);
 
-        _ssh.Connect();
-        _sftp.Connect();
+        try
+        {
+            _ssh.Connect();
+            _sftp.Connect();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error($"SSH connect failed: {username}@{host}", ex);
+            throw;
+        }
 
         Host = host;
         Username = username;
+        AppLog.Info($"SSH connected: {username}@{host}");
     }
 
     public string RunCommand(string command)
@@ -39,12 +48,22 @@ public class SshService : IDisposable
         if (_ssh == null || !_ssh.IsConnected)
             throw new InvalidOperationException("Not connected");
 
+        AppLog.Info($"$ {command}");
         using var cmd = _ssh.CreateCommand(command);
         var result = cmd.Execute();
+
         if (cmd.ExitStatus != 0 && !string.IsNullOrEmpty(cmd.Error))
+        {
+            AppLog.Warn($"exit={cmd.ExitStatus} stderr: {Truncate(cmd.Error.Trim())}");
             return cmd.Error.Trim();
+        }
+
+        AppLog.Info($"exit={cmd.ExitStatus} out: {Truncate(result.Trim())}");
         return result.Trim();
     }
+
+    private static string Truncate(string s, int max = 500)
+        => s.Length <= max ? s : s[..max] + $"… (+{s.Length - max} chars)";
 
     public async Task<string> RunCommandAsync(string command)
     {

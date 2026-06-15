@@ -6,6 +6,12 @@
     <UserControl.Resources>
         <conv:InvertBoolConverter x:Key="InvertBoolConverter"/>
         <conv:ErrorColorConverter x:Key="ErrorColorConverter"/>
+        <Style x:Key="SectionLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#888"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Margin" Value="2 8 0 8"/>
+        </Style>
     </UserControl.Resources>
 
     <Grid Margin="24">
@@ -16,7 +22,7 @@
         </Grid.RowDefinitions>
 
         <!-- Header -->
-        <DockPanel Grid.Row="0" Margin="0 0 0 20">
+        <DockPanel Grid.Row="0" Margin="0 0 0 16">
             <TextBlock Text="System Information" Foreground="White" FontSize="22" FontWeight="SemiBold" VerticalAlignment="Center"/>
             <Button Content="↻  Refresh" Command="{Binding RefreshCommand}" DockPanel.Dock="Right"
                     Padding="14 8" Background="#3D5AFE" Foreground="White" BorderThickness="0"
@@ -24,28 +30,54 @@
                     IsEnabled="{Binding IsBusy, Converter={StaticResource InvertBoolConverter}}"/>
         </DockPanel>
 
-        <!-- Info cards -->
-        <Grid Grid.Row="1">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-            </Grid.RowDefinitions>
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <!-- System -->
+                <TextBlock Text="SYSTEM" Style="{StaticResource SectionLabel}"/>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
 
-            <views:InfoCard Grid.Row="0" Grid.Column="0" Label="Hostname" Value="{Binding Hostname}" Margin="0 0 8 8"/>
-            <views:InfoCard Grid.Row="0" Grid.Column="1" Label="IP Address" Value="{Binding IpAddress}" Margin="8 0 0 8"/>
-            <views:InfoCard Grid.Row="1" Grid.Column="0" Label="OS" Value="{Binding Os}" Margin="0 0 8 8"/>
-            <views:InfoCard Grid.Row="1" Grid.Column="1" Label="Kernel" Value="{Binding Kernel}" Margin="8 0 0 8"/>
-            <views:InfoCard Grid.Row="2" Grid.Column="0" Label="Uptime" Value="{Binding Uptime}" Margin="0 0 8 8"/>
-            <views:InfoCard Grid.Row="2" Grid.Column="1" Label="CPU Usage" Value="{Binding CpuUsage}" Margin="8 0 0 8"/>
-            <views:InfoCard Grid.Row="3" Grid.Column="0" Label="Memory" Value="{Binding MemoryInfo}" Margin="0 0 8 8"/>
-            <views:InfoCard Grid.Row="3" Grid.Column="1" Label="Disk (/)" Value="{Binding DiskInfo}" Margin="8 0 0 8"/>
-        </Grid>
+                    <views:InfoCard Grid.Row="0" Grid.Column="0" Label="Hostname" Value="{Binding Hostname}" Margin="0 0 8 8"/>
+                    <views:InfoCard Grid.Row="0" Grid.Column="1" Label="OS" Value="{Binding Os}" Margin="8 0 0 8"/>
+                    <views:InfoCard Grid.Row="1" Grid.Column="0" Label="Kernel" Value="{Binding Kernel}" Margin="0 0 8 8"/>
+                    <views:InfoCard Grid.Row="1" Grid.Column="1" Label="Uptime" Value="{Binding Uptime}" Margin="8 0 0 8"/>
+                    <views:InfoCard Grid.Row="2" Grid.Column="0" Label="CPU Usage" Value="{Binding CpuUsage}" Margin="0 0 8 8"/>
+                    <views:InfoCard Grid.Row="2" Grid.Column="1" Label="Memory" Value="{Binding MemoryInfo}" Margin="8 0 0 8"/>
+                    <views:InfoCard Grid.Row="3" Grid.Column="0" Label="Disk (/)" Value="{Binding DiskInfo}" Margin="0 0 8 8"/>
+                    <views:InfoCard Grid.Row="3" Grid.Column="1" Label="Primary IP" Value="{Binding IpAddress}" Margin="8 0 0 8"/>
+                </Grid>
+
+                <!-- Network -->
+                <TextBlock Text="NETWORK" Style="{StaticResource SectionLabel}"/>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <views:InfoCard Grid.Row="0" Grid.Column="0" Label="IPv4 Addresses" Value="{Binding Ipv4Addresses}" Margin="0 0 8 8"/>
+                    <views:InfoCard Grid.Row="0" Grid.Column="1" Label="IPv6 Addresses" Value="{Binding Ipv6Addresses}" Margin="8 0 0 8"/>
+                    <views:InfoCard Grid.Row="1" Grid.Column="0" Label="Gateway (IPv4)" Value="{Binding GatewayV4}" Margin="0 0 8 8"/>
+                    <views:InfoCard Grid.Row="1" Grid.Column="1" Label="Gateway (IPv6)" Value="{Binding GatewayV6}" Margin="8 0 0 8"/>
+                    <views:InfoCard Grid.Row="2" Grid.Column="0" Label="DNS Servers" Value="{Binding DnsServers}" Margin="0 0 8 8"/>
+                    <views:InfoCard Grid.Row="2" Grid.Column="1" Label="Outbound Connectivity" Value="{Binding Connectivity}" Margin="8 0 0 8"/>
+                </Grid>
+            </StackPanel>
+        </ScrollViewer>
 
         <!-- Status bar -->
         <TextBlock Grid.Row="2" Text="{Binding StatusMessage}" Margin="0 12 0 0" FontSize="12"

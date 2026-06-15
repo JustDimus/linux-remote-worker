@@ -41,11 +41,24 @@ public partial class PostgresViewModel : BaseViewModel, IModule
     [ObservableProperty] private bool _newUserSuperuser;
     public ObservableCollection<PgUser> Users { get; } = [];
 
+    // Databases
+    [ObservableProperty] private string _newDbName = string.Empty;
+    [ObservableProperty] private string _newDbOwner = "postgres";
+    public ObservableCollection<string> Databases { get; } = [];
+
+    // Grant access
+    [ObservableProperty] private string? _grantDb;
+    [ObservableProperty] private string? _grantUser;
+    [ObservableProperty] private string _grantLevel = "Read-write";
+    public List<string> AccessLevels { get; } = ["Owner", "Read-write", "Read-only"];
+
     // Connection string
     [ObservableProperty] private string _connStringDb = "postgres";
     [ObservableProperty] private string _connStringUser = "postgres";
     [ObservableProperty] private string _connStringPassword = string.Empty;
     [ObservableProperty] private string _connectionString = string.Empty;
+    [ObservableProperty] private string _connHostMode = "localhost";
+    public List<string> ConnHostModes { get; } = ["localhost", "Server IPv4", "Server IPv6"];
 
     public PostgresViewModel(SshService ssh)
     {
@@ -71,6 +84,7 @@ public partial class PostgresViewModel : BaseViewModel, IModule
                 await LoadConfigAsync();
                 await LoadHbaRulesAsync();
                 await LoadUsersAsync();
+                await LoadDatabasesAsync();
             }
         });
     }
@@ -223,6 +237,107 @@ public partial class PostgresViewModel : BaseViewModel, IModule
         }
     }
 
+    private async Task LoadDatabasesAsync()
+    {
+        Databases.Clear();
+        var output = await _ssh.RunCommandAsync(
+            "sudo -u postgres psql -t -c \"SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname;\" 2>/dev/null");
+        foreach (var line in output.Split('\n').Where(l => !string.IsNullOrWhiteSpace(l)))
+            Databases.Add(line.Trim());
+    }
+
+    [RelayCommand]
+    private async Task CreateDatabaseAsync()
+    {
+        if (string.IsNullOrWhiteSpace(NewDbName))
+        {
+            SetStatus("Enter a database name", isError: true);
+            return;
+        }
+
+        await RunSafeAsync(async () =>
+        {
+            // Created by the postgres superuser; owner is any existing role you pick.
+            var owner = string.IsNullOrWhiteSpace(NewDbOwner) ? "postgres" : NewDbOwner.Trim();
+            var sql = $"CREATE DATABASE \\\"{NewDbName.Trim()}\\\" OWNER \\\"{owner}\\\";";
+            var result = await _ssh.RunCommandAsync($"sudo -u postgres psql -c \"{sql}\" 2>&1");
+
+            if (result.Contains("ERROR"))
+                throw new Exception(result);
+
+            NewDbName = string.Empty;
+            await LoadDatabasesAsync();
+            SetStatus("Database created");
+        });
+    }
+
+    [RelayCommand]
+    private async Task DropDatabaseAsync(string db)
+    {
+        await RunSafeAsync(async () =>
+        {
+            var sql = $"DROP DATABASE IF EXISTS \\\"{db}\\\";";
+            var result = await _ssh.RunCommandAsync($"sudo -u postgres psql -c \"{sql}\" 2>&1");
+            if (result.Contains("ERROR"))
+                throw new Exception(result);
+            await LoadDatabasesAsync();
+            SetStatus($"Database {db} dropped");
+        });
+    }
+
+    [RelayCommand]
+    private void UseDbInConnStr(string db)
+    {
+        ConnStringDb = db;
+        SetStatus($"Selected database: {db}");
+    }
+
+    [RelayCommand]
+    private async Task GrantAccessAsync()
+    {
+        if (string.IsNullOrWhiteSpace(GrantDb) || string.IsNullOrWhiteSpace(GrantUser))
+        {
+            SetStatus("Select a database and a user", isError: true);
+            return;
+        }
+
+        await RunSafeAsync(async () =>
+        {
+            var db = GrantDb!;
+            var u = GrantUser!;
+
+            if (GrantLevel == "Owner")
+            {
+                var sql = $"ALTER DATABASE \\\"{db}\\\" OWNER TO \\\"{u}\\\";";
+                var r = await _ssh.RunCommandAsync($"sudo -u postgres psql -c \"{sql}\" 2>&1");
+                if (r.Contains("ERROR")) throw new Exception(r);
+                SetStatus($"{u} is now OWNER of {db}");
+                return;
+            }
+
+            // Read-only or Read-write: run inside the target DB so schema/table grants apply
+            string tablePrivs = GrantLevel == "Read-write"
+                ? "SELECT, INSERT, UPDATE, DELETE"
+                : "SELECT";
+            string seqPrivs = GrantLevel == "Read-write" ? "USAGE, SELECT" : "SELECT";
+            string schemaPrivs = GrantLevel == "Read-write" ? "USAGE, CREATE" : "USAGE";
+
+            var statements = string.Join(" ", new[]
+            {
+                $"GRANT CONNECT ON DATABASE \\\"{db}\\\" TO \\\"{u}\\\";",
+                $"GRANT {schemaPrivs} ON SCHEMA public TO \\\"{u}\\\";",
+                $"GRANT {tablePrivs} ON ALL TABLES IN SCHEMA public TO \\\"{u}\\\";",
+                $"GRANT {seqPrivs} ON ALL SEQUENCES IN SCHEMA public TO \\\"{u}\\\";",
+                $"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT {tablePrivs} ON TABLES TO \\\"{u}\\\";",
+                $"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT {seqPrivs} ON SEQUENCES TO \\\"{u}\\\";"
+            });
+
+            var result = await _ssh.RunCommandAsync($"sudo -u postgres psql -d \"{db}\" -c \"{statements}\" 2>&1");
+            if (result.Contains("ERROR")) throw new Exception(result);
+            SetStatus($"{u} granted {GrantLevel} on {db}");
+        });
+    }
+
     [RelayCommand]
     private async Task CreateUserAsync()
     {
@@ -288,13 +403,30 @@ public partial class PostgresViewModel : BaseViewModel, IModule
     }
 
     [RelayCommand]
-    private Task GenerateConnectionStringAsync()
+    private async Task GenerateConnectionStringAsync()
     {
-        var host = _ssh.Host ?? "localhost";
-        var password = string.IsNullOrWhiteSpace(ConnStringPassword) ? "YOUR_PASSWORD" : ConnStringPassword;
-        ConnectionString = $"Host={host};Port={Port};Database={ConnStringDb};Username={ConnStringUser};Password={password}";
-        SetStatus("Connection string generated");
-        return Task.CompletedTask;
+        await RunSafeAsync(async () =>
+        {
+            string host = ConnHostMode switch
+            {
+                "localhost" => "localhost",
+                "Server IPv4" => (await _ssh.RunCommandAsync(
+                    "ip -4 -o addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1")).Trim(),
+                "Server IPv6" => (await _ssh.RunCommandAsync(
+                    "ip -6 -o addr show scope global 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1")).Trim(),
+                _ => _ssh.Host ?? "localhost"
+            };
+
+            if (string.IsNullOrWhiteSpace(host))
+            {
+                SetStatus($"No address found for '{ConnHostMode}' on the server", isError: true);
+                return;
+            }
+
+            var password = string.IsNullOrWhiteSpace(ConnStringPassword) ? "YOUR_PASSWORD" : ConnStringPassword;
+            ConnectionString = $"Host={host};Port={Port};Database={ConnStringDb};Username={ConnStringUser};Password={password}";
+            SetStatus($"Connection string generated ({ConnHostMode})");
+        });
     }
 
     [RelayCommand]

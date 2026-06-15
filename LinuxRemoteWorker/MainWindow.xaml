@@ -6,6 +6,8 @@
         xmlns:sysinfo="clr-namespace:LinuxRemoteWorker.Modules.SystemInfo"
         xmlns:pg="clr-namespace:LinuxRemoteWorker.Modules.Postgres"
         xmlns:fw="clr-namespace:LinuxRemoteWorker.Modules.Firewall"
+        xmlns:repo="clr-namespace:LinuxRemoteWorker.Modules.Repositories"
+        xmlns:svc="clr-namespace:LinuxRemoteWorker.Modules.Services"
         xmlns:conv="clr-namespace:LinuxRemoteWorker.Converters"
         Title="Linux Remote Worker" Height="700" Width="1100"
         Background="#13131F" WindowStartupLocation="CenterScreen">
@@ -27,6 +29,12 @@
         </DataTemplate>
         <DataTemplate DataType="{x:Type fw:FirewallViewModel}">
             <fw:FirewallView/>
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type repo:RepositoriesViewModel}">
+            <repo:RepositoriesView/>
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type svc:ServicesViewModel}">
+            <svc:ServicesView/>
         </DataTemplate>
 
         <!-- Sidebar nav button -->
@@ -107,7 +115,17 @@
                             <TextBlock Text="PostgreSQL"/>
                         </StackPanel>
                     </Button>
-                    <Button IsEnabled="False" Style="{StaticResource NavButtonStyle}">
+                    <Button Command="{Binding NavigateToCommand}" CommandParameter="{Binding RepositoriesVM}"
+                            IsEnabled="{Binding IsConnected}"
+                            Style="{StaticResource NavButtonStyle}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="📁" Margin="0 0 8 0"/>
+                            <TextBlock Text="Repositories"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Command="{Binding NavigateToCommand}" CommandParameter="{Binding ServicesVM}"
+                            IsEnabled="{Binding IsConnected}"
+                            Style="{StaticResource NavButtonStyle}">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="⚙" Margin="0 0 8 0"/>
                             <TextBlock Text=".NET Services"/>
@@ -119,12 +137,6 @@
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="🛡" Margin="0 0 8 0"/>
                             <TextBlock Text="Firewall"/>
-                        </StackPanel>
-                    </Button>
-                    <Button IsEnabled="False" Style="{StaticResource NavButtonStyle}">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="📁" Margin="0 0 8 0"/>
-                            <TextBlock Text="Repositories"/>
                         </StackPanel>
                     </Button>
                     <Button IsEnabled="False" Style="{StaticResource NavButtonStyle}">

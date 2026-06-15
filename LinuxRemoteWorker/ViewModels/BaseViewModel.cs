@@ -25,6 +25,7 @@ public abstract partial class BaseViewModel : ObservableObject
         }
         catch (Exception ex)
         {
+            Core.AppLog.Error($"{GetType().Name} action failed", ex);
             SetStatus(ex.Message, isError: true);
         }
         finally
