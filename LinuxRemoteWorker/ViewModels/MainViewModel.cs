@@ -2,6 +2,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LinuxRemoteWorker.Core;
 using LinuxRemoteWorker.Modules.Firewall;
+using LinuxRemoteWorker.Modules.Logs;
 using LinuxRemoteWorker.Modules.Postgres;
 using LinuxRemoteWorker.Modules.Repositories;
 using LinuxRemoteWorker.Modules.Services;
@@ -19,6 +20,7 @@ public partial class MainViewModel : BaseViewModel
     public FirewallViewModel FirewallVM { get; }
     public RepositoriesViewModel RepositoriesVM { get; }
     public ServicesViewModel ServicesVM { get; }
+    public LogsViewModel LogsVM { get; }
 
     [ObservableProperty] private BaseViewModel? _activeModule;
     [ObservableProperty] private bool _isConnected;
@@ -33,6 +35,7 @@ public partial class MainViewModel : BaseViewModel
         FirewallVM = new FirewallViewModel(_ssh);
         RepositoriesVM = new RepositoriesViewModel(_ssh);
         ServicesVM = new ServicesViewModel(_ssh);
+        LogsVM = new LogsViewModel(_ssh);
 
         ConnectVM.ConnectedSuccessfully += OnConnected;
     }

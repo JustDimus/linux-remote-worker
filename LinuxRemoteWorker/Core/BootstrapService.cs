@@ -20,7 +20,7 @@ public class BootstrapService
             // dedicated non-login service user
             $"id {DeployPaths.ServiceUser} >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin {DeployPaths.ServiceUser}",
             // directory tree
-            $"mkdir -p {DeployPaths.Repos} {DeployPaths.Apps} {DeployPaths.Keys}",
+            $"mkdir -p {DeployPaths.Repos} {DeployPaths.Apps} {DeployPaths.Keys} {DeployPaths.Logs}",
             $"chown -R {DeployPaths.ServiceUser}:{DeployPaths.ServiceUser} {DeployPaths.Base}",
             $"chmod 700 {DeployPaths.Keys}",
             // git commands run as root over repos owned by lrw — trust them (idempotent)

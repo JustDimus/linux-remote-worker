@@ -8,6 +8,7 @@
         xmlns:fw="clr-namespace:LinuxRemoteWorker.Modules.Firewall"
         xmlns:repo="clr-namespace:LinuxRemoteWorker.Modules.Repositories"
         xmlns:svc="clr-namespace:LinuxRemoteWorker.Modules.Services"
+        xmlns:logs="clr-namespace:LinuxRemoteWorker.Modules.Logs"
         xmlns:conv="clr-namespace:LinuxRemoteWorker.Converters"
         Title="Linux Remote Worker" Height="700" Width="1100"
         Background="#13131F" WindowStartupLocation="CenterScreen">
@@ -35,6 +36,9 @@
         </DataTemplate>
         <DataTemplate DataType="{x:Type svc:ServicesViewModel}">
             <svc:ServicesView/>
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type logs:LogsViewModel}">
+            <logs:LogsView/>
         </DataTemplate>
 
         <!-- Sidebar nav button -->
@@ -139,7 +143,9 @@
                             <TextBlock Text="Firewall"/>
                         </StackPanel>
                     </Button>
-                    <Button IsEnabled="False" Style="{StaticResource NavButtonStyle}">
+                    <Button Command="{Binding NavigateToCommand}" CommandParameter="{Binding LogsVM}"
+                            IsEnabled="{Binding IsConnected}"
+                            Style="{StaticResource NavButtonStyle}">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="📋" Margin="0 0 8 0"/>
                             <TextBlock Text="Logs"/>
