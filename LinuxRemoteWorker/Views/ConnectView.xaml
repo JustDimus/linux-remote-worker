@@ -6,6 +6,9 @@
         <conv:InvertBoolConverter x:Key="InvertBoolConverter"/>
         <conv:ErrorColorConverter x:Key="ErrorColorConverter"/>
         <conv:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
+        <conv:StringToVisibilityConverter x:Key="StringToVisibilityConverter"/>
+        <conv:NotNullToVisibilityConverter x:Key="NotNullToVisibilityConverter"/>
+        <conv:NotNullToBoolConverter x:Key="NotNullToBoolConverter"/>
 
         <Style x:Key="FieldLabel" TargetType="TextBlock">
             <Setter Property="Foreground" Value="#888"/>
@@ -61,10 +64,22 @@
                 </Border>
 
                 <Border DockPanel.Dock="Bottom" Padding="12 8" BorderBrush="#2A2A3E" BorderThickness="0 1 0 0">
-                    <Button Content="🗑 Delete" Command="{Binding DeleteProfileCommand}"
-                            Background="Transparent" BorderThickness="0" Foreground="#666"
-                            FontSize="12" Cursor="Hand" HorizontalAlignment="Left"
-                            IsEnabled="{Binding SelectedProfile, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <StackPanel>
+                        <DockPanel>
+                            <Button Content="🗑 Delete" Command="{Binding DeleteProfileCommand}"
+                                    Background="Transparent" BorderThickness="0" Foreground="#666"
+                                    FontSize="12" Cursor="Hand" HorizontalAlignment="Left"
+                                    IsEnabled="{Binding SelectedProfile, Converter={StaticResource NotNullToBoolConverter}}"/>
+                            <Button Content="📂" Command="{Binding OpenProfilesFolderCommand}"
+                                    DockPanel.Dock="Right" HorizontalAlignment="Right"
+                                    Background="Transparent" BorderThickness="0" Foreground="#666"
+                                    FontSize="12" Cursor="Hand"
+                                    ToolTip="{Binding ProfilesPath, StringFormat='Saved servers are stored in {0}'}"/>
+                        </DockPanel>
+                        <TextBlock Text="{Binding ProfilesPath}" Foreground="#3A3A4A" FontSize="9"
+                                   Margin="0 6 0 0" TextTrimming="CharacterEllipsis"
+                                   ToolTip="{Binding ProfilesPath}"/>
+                    </StackPanel>
                 </Border>
 
                 <ListBox ItemsSource="{Binding Profiles}"
@@ -137,8 +152,50 @@
 
                 <!-- Status -->
                 <TextBlock Text="{Binding StatusMessage}" Margin="0 12 0 0" TextAlignment="Center" FontSize="13"
+                           TextWrapping="Wrap"
                            Foreground="{Binding HasError, Converter={StaticResource ErrorColorConverter}}"
-                           Visibility="{Binding StatusMessage, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                           Visibility="{Binding StatusMessage, Converter={StaticResource StringToVisibilityConverter}}"/>
+
+                <!-- Why the connection failed, and what to do about it -->
+                <Border Margin="0 16 0 0" Background="#2A1620" BorderBrush="#7A2A3E" BorderThickness="1"
+                        CornerRadius="8" Padding="16"
+                        Visibility="{Binding Problem, Converter={StaticResource NotNullToVisibilityConverter}}">
+                    <StackPanel>
+                        <DockPanel Margin="0 0 0 8">
+                            <TextBlock Text="⚠" Foreground="#CF6279" FontSize="16" Margin="0 0 8 0"
+                                       VerticalAlignment="Top"/>
+                            <Button DockPanel.Dock="Right" Content="✕" Command="{Binding DismissProblemCommand}"
+                                    Background="Transparent" BorderThickness="0" Foreground="#7A5560"
+                                    FontSize="12" Cursor="Hand" VerticalAlignment="Top"
+                                    ToolTip="Hide this message"/>
+                            <TextBlock Text="{Binding Problem.Summary}" Foreground="#CF6279" FontSize="14"
+                                       FontWeight="SemiBold" TextWrapping="Wrap"/>
+                        </DockPanel>
+
+                        <TextBlock Text="{Binding Problem.Hint}" Foreground="#D8C2C8" FontSize="12"
+                                   TextWrapping="Wrap" Margin="0 0 0 10" LineHeight="18"/>
+
+                        <TextBlock Text="TECHNICAL DETAIL" Foreground="#7A5560" FontSize="10"
+                                   FontWeight="Bold" Margin="0 0 0 4"/>
+                        <Border Background="#1A0E14" CornerRadius="4" Padding="8 6" Margin="0 0 0 12">
+                            <TextBox Text="{Binding Problem.Detail, Mode=OneWay}" IsReadOnly="True"
+                                     Background="Transparent" BorderThickness="0" Foreground="#B08A94"
+                                     FontFamily="Consolas" FontSize="11" TextWrapping="Wrap"/>
+                        </Border>
+
+                        <StackPanel Orientation="Horizontal">
+                            <Button Content="📄 Open log file" Command="{Binding OpenLogCommand}"
+                                    Background="#3E2A32" Foreground="#E0B8C2" BorderThickness="0"
+                                    Padding="12 6" FontSize="12" Cursor="Hand" Margin="0 0 6 0"/>
+                            <Button Content="📋 Copy details" Command="{Binding CopyProblemCommand}"
+                                    Background="#3E2A32" Foreground="#E0B8C2" BorderThickness="0"
+                                    Padding="12 6" FontSize="12" Cursor="Hand"/>
+                        </StackPanel>
+
+                        <TextBlock Foreground="#6A4A54" FontSize="10" Margin="0 10 0 0" TextWrapping="Wrap"
+                                   Text="{Binding LogFilePath, StringFormat='Full log: {0}'}"/>
+                    </StackPanel>
+                </Border>
             </StackPanel>
         </ScrollViewer>
     </Grid>

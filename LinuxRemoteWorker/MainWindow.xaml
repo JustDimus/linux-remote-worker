@@ -9,6 +9,7 @@
         xmlns:repo="clr-namespace:LinuxRemoteWorker.Modules.Repositories"
         xmlns:svc="clr-namespace:LinuxRemoteWorker.Modules.Services"
         xmlns:logs="clr-namespace:LinuxRemoteWorker.Modules.Logs"
+        xmlns:applog="clr-namespace:LinuxRemoteWorker.Modules.AppLogs"
         xmlns:conv="clr-namespace:LinuxRemoteWorker.Converters"
         Title="Linux Remote Worker" Height="700" Width="1100"
         Background="#13131F" WindowStartupLocation="CenterScreen">
@@ -39,6 +40,9 @@
         </DataTemplate>
         <DataTemplate DataType="{x:Type logs:LogsViewModel}">
             <logs:LogsView/>
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type applog:AppLogViewModel}">
+            <applog:AppLogView/>
         </DataTemplate>
 
         <!-- Sidebar nav button -->
@@ -148,7 +152,19 @@
                             Style="{StaticResource NavButtonStyle}">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="📋" Margin="0 0 8 0"/>
-                            <TextBlock Text="Logs"/>
+                            <TextBlock Text="Server Logs"/>
+                        </StackPanel>
+                    </Button>
+
+                    <TextBlock Text="DIAGNOSTICS" Foreground="#444" FontSize="10" Margin="8 12 0 4" FontWeight="Bold"/>
+
+                    <!-- Always available: this is where you look when nothing else works -->
+                    <Button Command="{Binding NavigateToCommand}" CommandParameter="{Binding AppLogVM}"
+                            Style="{StaticResource NavButtonStyle}"
+                            ToolTip="Open this application's own log file">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="🐞" Margin="0 0 8 0"/>
+                            <TextBlock Text="Application Log"/>
                         </StackPanel>
                     </Button>
                 </StackPanel>

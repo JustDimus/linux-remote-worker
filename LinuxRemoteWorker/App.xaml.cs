@@ -13,7 +13,14 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
-        AppLog.Info($"==== App started (log: {AppLog.CurrentFile}) ====");
+        AppLog.CleanupOldFiles();
+
+        AppLog.Info("======================================================");
+        AppLog.Info($"App started - v{typeof(App).Assembly.GetName().Version}");
+        AppLog.Info($"Log file: {AppLog.CurrentFile}");
+        AppLog.Info($"Profiles: {ProfileService.ProfilesPath}");
+        AppLog.Info($"OS: {Environment.OSVersion} | 64-bit: {Environment.Is64BitOperatingSystem} | user: {Environment.UserName}");
+        AppLog.Info($"Runtime: {Environment.Version} | machine: {Environment.MachineName}");
 
         DispatcherUnhandledException += OnDispatcherUnhandledException;
         AppDomain.CurrentDomain.UnhandledException += (_, args) =>
@@ -23,6 +30,12 @@ public partial class App : Application
             AppLog.Error("Unobserved task exception", args.Exception);
             args.SetObserved();
         };
+    }
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        AppLog.Info($"App exiting with code {e.ApplicationExitCode}");
+        base.OnExit(e);
     }
 
     private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)

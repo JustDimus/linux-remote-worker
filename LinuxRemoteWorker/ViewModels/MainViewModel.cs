@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LinuxRemoteWorker.Core;
+using LinuxRemoteWorker.Modules.AppLogs;
 using LinuxRemoteWorker.Modules.Firewall;
 using LinuxRemoteWorker.Modules.Logs;
 using LinuxRemoteWorker.Modules.Postgres;
@@ -21,6 +22,7 @@ public partial class MainViewModel : BaseViewModel
     public RepositoriesViewModel RepositoriesVM { get; }
     public ServicesViewModel ServicesVM { get; }
     public LogsViewModel LogsVM { get; }
+    public AppLogViewModel AppLogVM { get; }
 
     [ObservableProperty] private BaseViewModel? _activeModule;
     [ObservableProperty] private bool _isConnected;
@@ -36,6 +38,7 @@ public partial class MainViewModel : BaseViewModel
         RepositoriesVM = new RepositoriesViewModel(_ssh);
         ServicesVM = new ServicesViewModel(_ssh);
         LogsVM = new LogsViewModel(_ssh);
+        AppLogVM = new AppLogViewModel();
 
         ConnectVM.ConnectedSuccessfully += OnConnected;
     }
@@ -50,6 +53,14 @@ public partial class MainViewModel : BaseViewModel
     private async Task NavigateToAsync(BaseViewModel module)
     {
         ActiveModule = module;
+
+        // The app-log viewer works without a server, so it refreshes itself instead.
+        if (module is AppLogViewModel appLog)
+        {
+            appLog.Reload();
+            return;
+        }
+
         if (module is IModule m)
             await m.LoadAsync(_ssh);
     }

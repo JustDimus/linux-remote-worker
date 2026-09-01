@@ -1,0 +1,120 @@
+<UserControl x:Class="LinuxRemoteWorker.Modules.AppLogs.AppLogView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:conv="clr-namespace:LinuxRemoteWorker.Converters"
+             xmlns:b="clr-namespace:LinuxRemoteWorker.Behaviors">
+    <UserControl.Resources>
+        <conv:ErrorColorConverter x:Key="ErrorColorConverter"/>
+        <conv:StringToVisibilityConverter x:Key="StringToVisibility"/>
+
+        <Style x:Key="SectionLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#888"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Margin" Value="0 0 0 6"/>
+        </Style>
+        <Style x:Key="SecondaryBtn" TargetType="Button">
+            <Setter Property="Background" Value="#2A2A3E"/>
+            <Setter Property="Foreground" Value="#AAA"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="12 6"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Margin" Value="0 0 6 0"/>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <DockPanel Grid.Row="0" Margin="0 0 0 4">
+            <TextBlock Text="Application Log" Foreground="White" FontSize="22" FontWeight="SemiBold"
+                       VerticalAlignment="Center"/>
+            <Button Content="↻ Refresh" Command="{Binding RefreshCommand}" DockPanel.Dock="Right"
+                    Background="#3D5AFE" Foreground="White" BorderThickness="0" Padding="14 8"
+                    FontSize="13" Cursor="Hand" VerticalAlignment="Top"/>
+        </DockPanel>
+        <TextBlock Grid.Row="1" Foreground="#666" FontSize="12" TextWrapping="Wrap" Margin="0 0 0 14"
+                   Text="Everything this app does is recorded here. If a connection fails, the reason is in this file."/>
+
+        <!-- Toolbar -->
+        <Border Grid.Row="2" Background="#1E1E2E" CornerRadius="8" Padding="16" Margin="0 0 0 12">
+            <StackPanel>
+                <TextBlock Text="LOG FILE" Style="{StaticResource SectionLabel}"/>
+                <Grid Margin="0 0 0 10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <ComboBox Grid.Column="0" ItemsSource="{Binding Files}" SelectedItem="{Binding SelectedFile}"
+                              MinWidth="200" VerticalAlignment="Center"/>
+                    <Border Grid.Column="1" Background="#13131F" CornerRadius="4" Padding="8 6" Margin="8 0 0 0">
+                        <TextBlock Text="{Binding LogDirectory}" Foreground="#6CCF97" FontFamily="Consolas"
+                                   FontSize="12" TextTrimming="CharacterEllipsis"
+                                   ToolTip="{Binding LogDirectory}"/>
+                    </Border>
+                </Grid>
+
+                <WrapPanel>
+                    <Button Content="📂 Open folder" Command="{Binding OpenFolderCommand}" Style="{StaticResource SecondaryBtn}"/>
+                    <Button Content="📄 Open in editor" Command="{Binding OpenFileCommand}" Style="{StaticResource SecondaryBtn}"/>
+                    <Button Content="📋 Copy path" Command="{Binding CopyPathCommand}" Style="{StaticResource SecondaryBtn}"/>
+                    <Button Content="⧉ Copy log" Command="{Binding CopyContentCommand}" Style="{StaticResource SecondaryBtn}"/>
+                    <Button Content="⬇ Save as…" Command="{Binding SaveAsCommand}" Style="{StaticResource SecondaryBtn}"/>
+                    <Button Content="🗑 Clear" Command="{Binding ClearCommand}"
+                            Background="#5A1E1E" Foreground="#CF6279" BorderThickness="0" Padding="12 6"
+                            FontSize="12" Cursor="Hand" Margin="0 0 6 0"/>
+                    <CheckBox Content="Follow new lines" IsChecked="{Binding IsFollowing}"
+                              Foreground="#AAA" FontSize="12" VerticalAlignment="Center" Margin="6 0 0 0"/>
+                </WrapPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- Viewer -->
+        <Border Grid.Row="3" Background="#1E1E2E" CornerRadius="8" Padding="16">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <Grid Grid.Row="0" Margin="0 0 0 8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Filter:" Foreground="#888" FontSize="12"
+                               VerticalAlignment="Center" Margin="0 0 8 0"/>
+                    <TextBox Grid.Column="1" Text="{Binding Filter, UpdateSourceTrigger=PropertyChanged, Delay=250}"
+                             Background="#13131F" Foreground="White" BorderBrush="#2A2A3E" BorderThickness="1"
+                             CaretBrush="White" Padding="8 5" FontSize="12"
+                             ToolTip="Show only lines containing this text, e.g. ERROR or the server IP"/>
+                </Grid>
+
+                <Border Grid.Row="1" Background="#0A0A12" CornerRadius="4" Padding="10">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                                  b:AutoScroll.ToEnd="True">
+                        <TextBox Text="{Binding Content, Mode=OneWay}" IsReadOnly="True"
+                                 Background="Transparent" Foreground="#9CDCFE" BorderThickness="0"
+                                 FontFamily="Consolas" FontSize="12"
+                                 TextWrapping="NoWrap" VerticalScrollBarVisibility="Disabled"
+                                 HorizontalScrollBarVisibility="Disabled"/>
+                    </ScrollViewer>
+                </Border>
+            </Grid>
+        </Border>
+
+        <!-- Status -->
+        <TextBlock Grid.Row="4" Text="{Binding StatusMessage}" Margin="0 12 0 0" FontSize="12"
+                   TextTrimming="CharacterEllipsis"
+                   Visibility="{Binding StatusMessage, Converter={StaticResource StringToVisibility}}"
+                   Foreground="{Binding HasError, Converter={StaticResource ErrorColorConverter}}"/>
+    </Grid>
+</UserControl>

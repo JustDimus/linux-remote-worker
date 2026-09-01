@@ -19,6 +19,14 @@ public partial class ConnectViewModel : BaseViewModel
     [ObservableProperty] private bool _isConnected;
     [ObservableProperty] private ConnectionProfile? _selectedProfile;
 
+    /// <summary>The last connection failure, explained. Null when there is nothing to report.</summary>
+    [ObservableProperty] private ConnectionProblem? _problem;
+
+    public string LogFilePath => AppLog.CurrentFile;
+
+    /// <summary>Shown in the saved-servers panel so profiles are findable on disk.</summary>
+    public string ProfilesPath => ProfileService.ProfilesPath;
+
     public ObservableCollection<ConnectionProfile> Profiles { get; } = [];
 
     public event Action? ConnectedSuccessfully;
@@ -44,6 +52,7 @@ public partial class ConnectViewModel : BaseViewModel
         Username = value.Username;
         PrivateKeyPath = value.PrivateKeyPath;
         ProfileName = value.Name;
+        Problem = null;
     }
 
     [RelayCommand]
@@ -92,6 +101,7 @@ public partial class ConnectViewModel : BaseViewModel
 
         _profileService.Save(profiles);
         LoadProfiles();
+        AppLog.Info($"Profile saved: {name} ({Username}@{Host})");
         SetStatus("Profile saved");
     }
 
@@ -104,6 +114,7 @@ public partial class ConnectViewModel : BaseViewModel
         profiles.RemoveAll(p => p.Id == SelectedProfile.Id);
         _profileService.Save(profiles);
 
+        AppLog.Info($"Profile deleted: {SelectedProfile.Name}");
         SelectedProfile = null;
         LoadProfiles();
         SetStatus("Profile deleted");
@@ -112,27 +123,76 @@ public partial class ConnectViewModel : BaseViewModel
     [RelayCommand]
     private async Task ConnectAsync()
     {
-        if (string.IsNullOrWhiteSpace(Host) || string.IsNullOrWhiteSpace(Username) || string.IsNullOrWhiteSpace(PrivateKeyPath))
+        Problem = null;
+        AppLog.Info($"---- Connect requested: {Username}@{Host} ----");
+
+        var preflight = ConnectionDiagnostics.PreflightCheck(Host, Username, PrivateKeyPath);
+        if (preflight != null)
         {
-            SetStatus("Fill in all fields", isError: true);
+            ReportProblem(preflight);
             return;
         }
 
-        await RunSafeAsync(async () =>
+        IsBusy = true;
+        HasError = false;
+        SetStatus("Connecting...");
+        try
         {
-            SetStatus("Connecting...");
-            await Task.Run(() => _ssh.Connect(Host, Username, PrivateKeyPath, string.IsNullOrEmpty(Passphrase) ? null : Passphrase));
+            await Task.Run(() => _ssh.Connect(Host, Username, PrivateKeyPath,
+                string.IsNullOrEmpty(Passphrase) ? null : Passphrase));
+
             IsConnected = true;
             SetStatus($"Connected to {Host}");
             ConnectedSuccessfully?.Invoke();
-        });
+        }
+        catch (Exception ex)
+        {
+            IsConnected = false;
+            ReportProblem(ConnectionDiagnostics.Explain(ex, Host, Username, PrivateKeyPath));
+        }
+        finally
+        {
+            IsBusy = false;
+        }
     }
+
+    private void ReportProblem(ConnectionProblem problem)
+    {
+        Problem = problem;
+        AppLog.Warn($"Connection problem: {problem.Summary} | {problem.Detail}");
+        SetStatus(problem.Summary, isError: true);
+    }
+
+    [RelayCommand]
+    private void CopyProblem()
+    {
+        if (Problem == null) return;
+        try
+        {
+            System.Windows.Clipboard.SetText(Problem.ToClipboardText(Host, Username, PrivateKeyPath));
+            SetStatus("Error details copied to clipboard");
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("Clipboard copy failed", ex);
+        }
+    }
+
+    [RelayCommand]
+    private void OpenLog() => AppLog.OpenFile();
+
+    [RelayCommand]
+    private void OpenProfilesFolder() => ProfileService.RevealInExplorer();
+
+    [RelayCommand]
+    private void DismissProblem() => Problem = null;
 
     [RelayCommand]
     private void Disconnect()
     {
         _ssh.Disconnect();
         IsConnected = false;
+        AppLog.Info("Disconnected by user");
         SetStatus("Disconnected");
     }
 }
