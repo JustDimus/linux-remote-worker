@@ -47,7 +47,8 @@ public partial class SystemInfoViewModel : BaseViewModel, IModule
             var os = await _ssh.RunCommandAsync("cat /etc/os-release | grep PRETTY_NAME | cut -d= -f2 | tr -d '\"'");
             var kernel = await _ssh.RunCommandAsync("uname -r");
             var uptime = await _ssh.RunCommandAsync("uptime -p");
-            var cpu = await _ssh.RunCommandAsync("top -bn1 | grep 'Cpu(s)' | awk '{print $2}' | cut -d'%' -f1");
+            // Busy share of all CPU time over one second (100 - idle); top's first field is user time only
+            var cpu = await _ssh.RunCommandAsync("vmstat 1 2 2>/dev/null | tail -1 | awk '{print 100 - $15}'");
             var mem = await _ssh.RunCommandAsync("free -h | awk '/Mem:/ {print $3 \" used / \" $2 \" total\"}'");
             var disk = await _ssh.RunCommandAsync("df -h / | awk 'NR==2 {print $3 \" used / \" $2 \" total (\" $5 \")\"}'");
             var ip = await _ssh.RunCommandAsync("hostname -I | awk '{print $1}'");
@@ -83,9 +84,10 @@ public partial class SystemInfoViewModel : BaseViewModel, IModule
         var gw6 = await _ssh.RunCommandAsync("ip -6 route show default 2>/dev/null | awk '{print $3}' | head -1");
         GatewayV6 = string.IsNullOrWhiteSpace(gw6) ? "(none)" : gw6.Trim();
 
+        // resolvectl first (systemd-resolved); resolv.conf when it is missing or lists no servers
         var dns = await _ssh.RunCommandAsync(
-            "resolvectl status 2>/dev/null | grep -m1 'DNS Servers' | sed 's/.*DNS Servers: //' " +
-            "|| grep '^nameserver' /etc/resolv.conf | awk '{print $2}' | paste -sd ' '");
+            "d=$(resolvectl status 2>/dev/null | grep -m1 'DNS Servers' | sed 's/.*DNS Servers: //'); " +
+            "[ -n \"$d\" ] && echo \"$d\" || grep '^nameserver' /etc/resolv.conf | awk '{print $2}' | paste -sd ' '");
         DnsServers = string.IsNullOrWhiteSpace(dns) ? "-" : dns.Trim();
 
         // Quick outbound reachability probe (4s each)

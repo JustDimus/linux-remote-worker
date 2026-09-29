@@ -1,5 +1,4 @@
 using System.Collections.ObjectModel;
-using System.Windows;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LinuxRemoteWorker.Core;
@@ -642,7 +641,4 @@ public partial class NginxViewModel : BaseViewModel, IModule
         SetStatus(message, isError: !r.Succeeded);
         return r.Succeeded;
     }
-
-    private static bool Confirm(string message, string caption) =>
-        MessageBox.Show(message, caption, MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
 }

@@ -22,17 +22,18 @@ public partial class PostgresViewModel : BaseViewModel, IModule
     // True only when busy AND already installed (Refresh/Restart) — not during install
     [ObservableProperty] private bool _isBusyInstalled;
 
-    // Config
+    // Config (read from the running server with SHOW, written with ALTER SYSTEM)
     [ObservableProperty] private string _listenAddresses = "*";
     [ObservableProperty] private string _port = "5432";
-    [ObservableProperty] private string _configLog = string.Empty;
+    private string _hbaFile = string.Empty;
+    private string _dataDirectory = string.Empty;
 
     // pg_hba entries
     [ObservableProperty] private string _newAllowIp = string.Empty;
     [ObservableProperty] private string _newAllowUser = "all";
     [ObservableProperty] private string _newAllowDb = "all";
     [ObservableProperty] private string _newAllowMethod = "scram-sha-256";
-    public List<string> AuthMethods { get; } = ["scram-sha-256", "md5", "trust", "reject", "peer"];
+    public IReadOnlyList<string> AuthMethods => PgCommands.AuthMethods;
     public ObservableCollection<HbaRule> HbaRules { get; } = [];
 
     // Users
@@ -71,22 +72,32 @@ public partial class PostgresViewModel : BaseViewModel, IModule
     private async Task RefreshAsync()
     {
         IsBusyInstalled = IsInstalled;
-        await RunSafeAsync(async () =>
-        {
-            var which = await _ssh.RunCommandAsync("which psql 2>/dev/null || echo ''");
-            IsInstalled = !string.IsNullOrWhiteSpace(which);
-            IsBusyInstalled = false;
+        await RunSafeAsync(LoadAllAsync);
+        IsBusyInstalled = false;
+    }
 
-            if (IsInstalled)
-            {
-                Version = await _ssh.RunCommandAsync("psql --version 2>/dev/null | head -1");
-                ServiceStatus = await _ssh.RunCommandAsync("systemctl is-active postgresql 2>/dev/null || echo 'unknown'");
-                await LoadConfigAsync();
-                await LoadHbaRulesAsync();
-                await LoadUsersAsync();
-                await LoadDatabasesAsync();
-            }
-        });
+    private async Task LoadAllAsync()
+    {
+        // A cluster, not just the psql client, means the server is installed
+        var clusters = (await _ssh.ExecuteAsync("pg_lsclusters -h 2>/dev/null")).Lines;
+        IsInstalled = clusters.Count > 0;
+        if (!IsInstalled) return;
+
+        Version = (await _ssh.ExecuteAsync("psql --version 2>/dev/null | head -1")).Text;
+        // "16 main 5432 online postgres /var/lib/postgresql/16/main ..." — first cluster
+        var online = clusters[0].Split(' ', StringSplitOptions.RemoveEmptyEntries).ElementAtOrDefault(3)?
+            .StartsWith("online", StringComparison.Ordinal) == true;
+        ServiceStatus = online ? "active" : "down";
+        if (!online)
+        {
+            SetStatus("PostgreSQL is installed but not running - press Restart.", isError: true);
+            return;
+        }
+
+        await LoadConfigAsync();
+        await LoadHbaRulesAsync();
+        await LoadUsersAsync();
+        await LoadDatabasesAsync();
     }
 
     [RelayCommand]
@@ -97,80 +108,81 @@ public partial class PostgresViewModel : BaseViewModel, IModule
 
         await RunSafeAsync(async () =>
         {
-            void Append(string line)
-            {
-                InstallLog += line + "\n";
-            }
+            void Append(string line) => InstallLog += line + "\n";
 
-            Append("→ Updating apt...");
-            await _ssh.RunCommandStreamAsync("apt-get update -y", Append);
-
-            Append("\n→ Installing postgresql...");
-            await _ssh.RunCommandStreamAsync("DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql", Append);
-
-            Append("\n→ Starting service...");
-            await _ssh.RunCommandStreamAsync("systemctl enable postgresql && systemctl start postgresql", Append);
+            Append("→ Installing postgresql...");
+            var r = await _ssh.ExecuteStreamAsync(
+                $"{Shell.AptInstall("postgresql")} && systemctl enable --now postgresql 2>&1", Append);
+            if (!r.Succeeded)
+                throw new InvalidOperationException($"Installing PostgreSQL failed (exit {r.ExitCode}) - see the log above.");
 
             Append("\n✓ Done!");
-            await RefreshAsync();
+            await LoadAllAsync();
         });
 
         IsInstalling = false;
     }
 
+    /// <summary>Runs one SQL query and returns its trimmed output; throws with psql's message on failure.</summary>
+    private async Task<string> QueryAsync(string sql, string? database = null)
+    {
+        var r = await _ssh.ExecuteAsync(PgCommands.Query(sql, database));
+        if (!r.Succeeded) throw new InvalidOperationException(r.Text);
+        return r.Output.Trim();
+    }
+
+    /// <summary>Runs SQL statements; throws with psql's message on the first error.</summary>
+    private async Task ExecSqlAsync(string sql, string? database = null, string? logSql = null)
+    {
+        var r = await _ssh.ExecuteAsync(PgCommands.Run(sql, database),
+            logSql == null ? null : PgCommands.Run(logSql, database));
+        if (!r.Succeeded) throw new InvalidOperationException(r.Text);
+    }
+
     private async Task LoadConfigAsync()
     {
-        var conf = await _ssh.RunCommandAsync(
-            "grep -E '^listen_addresses|^port' /etc/postgresql/*/main/postgresql.conf 2>/dev/null | head -5");
-
-        foreach (var line in conf.Split('\n'))
-        {
-            if (line.Contains("listen_addresses"))
-                ListenAddresses = line.Split('=').LastOrDefault()?.Trim().Trim('\'') ?? "*";
-            if (line.Contains("port"))
-                Port = line.Split('=').LastOrDefault()?.Trim() ?? "5432";
-        }
+        // The running server's own values — no guessing from config files and their comments
+        var values = (await QueryAsync(
+                "SELECT current_setting('listen_addresses'), current_setting('port'), " +
+                "current_setting('hba_file'), current_setting('data_directory');"))
+            .Split(PgCommands.Separator);
+        if (values.Length < 4) return;
+        ListenAddresses = values[0];
+        Port = values[1];
+        _hbaFile = values[2];
+        _dataDirectory = values[3];
     }
 
     private async Task LoadHbaRulesAsync()
     {
+        var rules = PgCommands.ParseHbaRules(await QueryAsync(PgCommands.HbaRulesSql));
         HbaRules.Clear();
-        var hba = await _ssh.RunCommandAsync(
-            "grep -v '^#' /etc/postgresql/*/main/pg_hba.conf 2>/dev/null | grep -v '^$'");
-        foreach (var line in hba.Split('\n').Where(l => !string.IsNullOrWhiteSpace(l)))
-        {
-            var parts = line.Trim().Split(new char[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-            HbaRules.Add(new HbaRule(
-                Type:     parts.ElementAtOrDefault(0) ?? "",
-                Database: parts.ElementAtOrDefault(1) ?? "",
-                User:     parts.ElementAtOrDefault(2) ?? "",
-                Address:  parts.ElementAtOrDefault(3) ?? "",
-                Method:   parts.ElementAtOrDefault(4) ?? "",
-                Raw:      line.Trim()
-            ));
-        }
+        foreach (var rule in rules) HbaRules.Add(rule);
     }
 
     [RelayCommand]
     private async Task SaveListenAddressAsync()
     {
+        var portError = PgCommands.ValidatePort(Port, out var port);
+        var error = PgCommands.ValidateListenAddresses(ListenAddresses) ?? portError ?? NotLoadedError(_dataDirectory);
+        if (error != null)
+        {
+            SetStatus(error, isError: true);
+            return;
+        }
+
+        IsBusyInstalled = true;
         await RunSafeAsync(async () =>
         {
-            var confPath = await _ssh.RunCommandAsync("ls /etc/postgresql/*/main/postgresql.conf | head -1");
-            confPath = confPath.Trim();
+            SetStatus("Applying and restarting PostgreSQL...");
+            var r = await _ssh.ExecuteAsync(PgCommands.SetNetwork(_dataDirectory, ListenAddresses.Trim(), port));
+            await LoadAllAsync();
+            if (!r.Succeeded) throw new InvalidOperationException(r.Text);
 
-            await _ssh.RunCommandAsync(
-                $"sed -i \"s/^#*listen_addresses.*/listen_addresses = '{ListenAddresses}'/\" {confPath}");
-            await _ssh.RunCommandAsync(
-                $"sed -i \"s/^#*port.*/port = {Port}/\" {confPath}");
-
-            // listen_addresses requires full restart, not just reload
-            await _ssh.RunCommandAsync("systemctl restart postgresql");
-
-            var listening = await _ssh.RunCommandAsync("ss -tlnp | grep 5432");
-            ServiceStatus = await _ssh.RunCommandAsync("systemctl is-active postgresql");
-            SetStatus($"Saved & restarted. Listening: {listening.Trim()}");
-        });
+            var listening = (await _ssh.ExecuteAsync($"ss -Htln 2>/dev/null | awk '{{print $4}}' | grep -E ':{port}$'")).Lines;
+            SetStatus($"Saved & restarted. Listening on: {string.Join(", ", listening)}");
+        }, "Applying and restarting PostgreSQL...");
+        IsBusyInstalled = false;
     }
 
     [RelayCommand]
@@ -180,9 +192,10 @@ public partial class PostgresViewModel : BaseViewModel, IModule
         await RunSafeAsync(async () =>
         {
             SetStatus("Restarting PostgreSQL...");
-            await _ssh.RunCommandAsync("systemctl restart postgresql");
-            ServiceStatus = await _ssh.RunCommandAsync("systemctl is-active postgresql");
-            SetStatus("PostgreSQL restarted");
+            var r = await _ssh.ExecuteAsync("systemctl restart postgresql 2>&1");
+            await LoadAllAsync();
+            if (!r.Succeeded) throw new InvalidOperationException(r.Text);
+            if (ServiceStatus == "active") SetStatus("PostgreSQL restarted");
         });
         IsBusyInstalled = false;
     }
@@ -190,20 +203,26 @@ public partial class PostgresViewModel : BaseViewModel, IModule
     [RelayCommand]
     private async Task AddHbaRuleAsync()
     {
-        if (string.IsNullOrWhiteSpace(NewAllowIp)) return;
+        var (address, error) = PgCommands.NormalizeHbaAddress(NewAllowIp);
+        error ??= PgCommands.ValidateHbaName(NewAllowUser.Trim(), "User")
+                  ?? PgCommands.ValidateHbaName(NewAllowDb.Trim(), "Database")
+                  ?? (PgCommands.AuthMethods.Contains(NewAllowMethod) ? null : "Pick an authentication method.")
+                  ?? NotLoadedError(_hbaFile);
+        if (error != null)
+        {
+            SetStatus(error, isError: true);
+            return;
+        }
 
         await RunSafeAsync(async () =>
         {
-            var hbaPath = await _ssh.RunCommandAsync("ls /etc/postgresql/*/main/pg_hba.conf | head -1");
-            hbaPath = hbaPath.Trim();
-
-            var rule = $"host    {NewAllowDb}    {NewAllowUser}    {NewAllowIp}    {NewAllowMethod}";
-            await _ssh.RunCommandAsync($"echo '{rule}' >> {hbaPath}");
-            await _ssh.RunCommandAsync("systemctl reload postgresql 2>/dev/null || systemctl restart postgresql");
+            var r = await _ssh.ExecuteAsync(PgCommands.AddHbaRule(
+                _hbaFile, NewAllowDb.Trim(), NewAllowUser.Trim(), address, NewAllowMethod));
+            await LoadHbaRulesAsync();
+            if (!r.Succeeded) throw new InvalidOperationException(r.Text);
 
             NewAllowIp = string.Empty;
-            await LoadHbaRulesAsync();
-            SetStatus("Rule added and PostgreSQL reloaded");
+            SetStatus($"Rule added for {address} and PostgreSQL reloaded");
         });
     }
 
@@ -212,38 +231,43 @@ public partial class PostgresViewModel : BaseViewModel, IModule
     {
         await RunSafeAsync(async () =>
         {
-            var hbaPath = await _ssh.RunCommandAsync("ls /etc/postgresql/*/main/pg_hba.conf | head -1");
-            hbaPath = hbaPath.Trim();
+            // Line numbers shift when the file is edited elsewhere; only delete what is still there
+            var current = PgCommands.ParseHbaRules(await QueryAsync(PgCommands.HbaRulesSql));
+            if (!current.Contains(rule))
+            {
+                await LoadHbaRulesAsync();
+                throw new InvalidOperationException("pg_hba.conf changed since it was loaded - the list is refreshed, try again.");
+            }
+            if (!PgCommands.KeepsAppAccess(current.Where(r => r != rule)))
+                throw new InvalidOperationException(
+                    "This rule is how the app itself reaches PostgreSQL (local socket, user postgres, no password). " +
+                    "Removing it would lock the app out, so it stays.");
 
-            var escaped = rule.Raw.Replace("/", "\\/").Replace(".", "\\.").Replace("*", "\\*").Replace("[", "\\[");
-            await _ssh.RunCommandAsync($"sed -i '/{escaped}/d' {hbaPath}");
-            await _ssh.RunCommandAsync("systemctl reload postgresql 2>/dev/null || systemctl restart postgresql");
-
+            var r = await _ssh.ExecuteAsync(PgCommands.RemoveHbaLine(rule.File, rule.LineNumber));
             await LoadHbaRulesAsync();
+            if (!r.Succeeded) throw new InvalidOperationException(r.Text);
             SetStatus("Rule removed");
         });
     }
 
     private async Task LoadUsersAsync()
     {
+        var output = await QueryAsync("SELECT usename, usesuper, usecreatedb FROM pg_user ORDER BY usename;");
         Users.Clear();
-        var output = await _ssh.RunCommandAsync(
-            "sudo -u postgres psql -t -c \"SELECT usename, usesuper, usecreatedb FROM pg_user ORDER BY usename;\" 2>/dev/null");
-        foreach (var line in output.Split('\n').Where(l => !string.IsNullOrWhiteSpace(l)))
+        foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
         {
-            var parts = line.Split('|');
+            var parts = line.Split(PgCommands.Separator);
             if (parts.Length >= 3)
-                Users.Add(new PgUser(parts[0].Trim(), parts[1].Trim() == "t", parts[2].Trim() == "t"));
+                Users.Add(new PgUser(parts[0], parts[1] == "t", parts[2] == "t"));
         }
     }
 
     private async Task LoadDatabasesAsync()
     {
+        var output = await QueryAsync("SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname;");
         Databases.Clear();
-        var output = await _ssh.RunCommandAsync(
-            "sudo -u postgres psql -t -c \"SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname;\" 2>/dev/null");
-        foreach (var line in output.Split('\n').Where(l => !string.IsNullOrWhiteSpace(l)))
-            Databases.Add(line.Trim());
+        foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+            Databases.Add(line);
     }
 
     [RelayCommand]
@@ -259,11 +283,7 @@ public partial class PostgresViewModel : BaseViewModel, IModule
         {
             // Created by the postgres superuser; owner is any existing role you pick.
             var owner = string.IsNullOrWhiteSpace(NewDbOwner) ? "postgres" : NewDbOwner.Trim();
-            var sql = $"CREATE DATABASE \\\"{NewDbName.Trim()}\\\" OWNER \\\"{owner}\\\";";
-            var result = await _ssh.RunCommandAsync($"sudo -u postgres psql -c \"{sql}\" 2>&1");
-
-            if (result.Contains("ERROR"))
-                throw new Exception(result);
+            await ExecSqlAsync($"CREATE DATABASE {PgCommands.Ident(NewDbName.Trim())} OWNER {PgCommands.Ident(owner)};");
 
             NewDbName = string.Empty;
             await LoadDatabasesAsync();
@@ -274,12 +294,11 @@ public partial class PostgresViewModel : BaseViewModel, IModule
     [RelayCommand]
     private async Task DropDatabaseAsync(string db)
     {
+        if (!Confirm($"Drop database '{db}'?\n\nAll its data is deleted permanently.", "Drop database")) return;
+
         await RunSafeAsync(async () =>
         {
-            var sql = $"DROP DATABASE IF EXISTS \\\"{db}\\\";";
-            var result = await _ssh.RunCommandAsync($"sudo -u postgres psql -c \"{sql}\" 2>&1");
-            if (result.Contains("ERROR"))
-                throw new Exception(result);
+            await ExecSqlAsync($"DROP DATABASE IF EXISTS {PgCommands.Ident(db)};");
             await LoadDatabasesAsync();
             SetStatus($"Database {db} dropped");
         });
@@ -303,45 +322,36 @@ public partial class PostgresViewModel : BaseViewModel, IModule
 
         await RunSafeAsync(async () =>
         {
-            var db = GrantDb!;
-            var u = GrantUser!;
+            var db = PgCommands.Ident(GrantDb!);
+            var u = PgCommands.Ident(GrantUser!);
 
             if (GrantLevel == "Owner")
             {
-                var sql = $"ALTER DATABASE \\\"{db}\\\" OWNER TO \\\"{u}\\\";";
-                var r = await _ssh.RunCommandAsync($"sudo -u postgres psql -c \"{sql}\" 2>&1");
-                if (r.Contains("ERROR")) throw new Exception(r);
-                SetStatus($"{u} is now OWNER of {db}");
+                await ExecSqlAsync($"ALTER DATABASE {db} OWNER TO {u};");
+                SetStatus($"{GrantUser} is now OWNER of {GrantDb}");
                 return;
             }
 
             // Read-only or Read-write: run inside the target DB so schema/table grants apply
-            string tablePrivs = GrantLevel == "Read-write"
-                ? "SELECT, INSERT, UPDATE, DELETE"
-                : "SELECT";
-            string seqPrivs = GrantLevel == "Read-write" ? "USAGE, SELECT" : "SELECT";
-            string schemaPrivs = GrantLevel == "Read-write" ? "USAGE, CREATE" : "USAGE";
+            var tablePrivs = GrantLevel == "Read-write" ? "SELECT, INSERT, UPDATE, DELETE" : "SELECT";
+            var seqPrivs = GrantLevel == "Read-write" ? "USAGE, SELECT" : "SELECT";
+            var schemaPrivs = GrantLevel == "Read-write" ? "USAGE, CREATE" : "USAGE";
 
-            var statements = string.Join(" ", new[]
-            {
-                $"GRANT CONNECT ON DATABASE \\\"{db}\\\" TO \\\"{u}\\\";",
-                $"GRANT {schemaPrivs} ON SCHEMA public TO \\\"{u}\\\";",
-                $"GRANT {tablePrivs} ON ALL TABLES IN SCHEMA public TO \\\"{u}\\\";",
-                $"GRANT {seqPrivs} ON ALL SEQUENCES IN SCHEMA public TO \\\"{u}\\\";",
-                $"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT {tablePrivs} ON TABLES TO \\\"{u}\\\";",
-                $"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT {seqPrivs} ON SEQUENCES TO \\\"{u}\\\";"
-            });
-
-            var result = await _ssh.RunCommandAsync($"sudo -u postgres psql -d \"{db}\" -c \"{statements}\" 2>&1");
-            if (result.Contains("ERROR")) throw new Exception(result);
-            SetStatus($"{u} granted {GrantLevel} on {db}");
+            await ExecSqlAsync(string.Join("\n",
+                $"GRANT CONNECT ON DATABASE {db} TO {u};",
+                $"GRANT {schemaPrivs} ON SCHEMA public TO {u};",
+                $"GRANT {tablePrivs} ON ALL TABLES IN SCHEMA public TO {u};",
+                $"GRANT {seqPrivs} ON ALL SEQUENCES IN SCHEMA public TO {u};",
+                $"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT {tablePrivs} ON TABLES TO {u};",
+                $"ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT {seqPrivs} ON SEQUENCES TO {u};"), GrantDb);
+            SetStatus($"{GrantUser} granted {GrantLevel} on {GrantDb}");
         });
     }
 
     [RelayCommand]
     private async Task CreateUserAsync()
     {
-        if (string.IsNullOrWhiteSpace(NewUsername) || string.IsNullOrWhiteSpace(NewPassword))
+        if (string.IsNullOrWhiteSpace(NewUsername) || string.IsNullOrEmpty(NewPassword))
         {
             SetStatus("Enter username and password", isError: true);
             return;
@@ -349,12 +359,12 @@ public partial class PostgresViewModel : BaseViewModel, IModule
 
         await RunSafeAsync(async () =>
         {
+            // CREATEDB lets EF-style migrations create their database; CREATEROLE is not granted:
+            // it lets a role create other roles and is far more than an application needs.
             var role = NewUserSuperuser ? "SUPERUSER" : "NOSUPERUSER";
-            var sql = $"CREATE USER \\\"{NewUsername}\\\" WITH PASSWORD '{NewPassword}' {role} CREATEROLE CREATEDB;";
-            var result = await _ssh.RunCommandAsync($"sudo -u postgres psql -c \"{sql}\" 2>&1");
-
-            if (result.Contains("ERROR"))
-                throw new Exception(result);
+            var name = PgCommands.Ident(NewUsername.Trim());
+            string Sql(string password) => $"CREATE USER {name} WITH PASSWORD {password} {role} CREATEDB;";
+            await ExecSqlAsync(Sql(PgCommands.Literal(NewPassword)), logSql: Sql("'***'"));
 
             NewUsername = string.Empty;
             NewPassword = string.Empty;
@@ -366,7 +376,7 @@ public partial class PostgresViewModel : BaseViewModel, IModule
     [RelayCommand]
     private async Task ChangePasswordAsync(PgUser user)
     {
-        if (string.IsNullOrWhiteSpace(NewPassword))
+        if (string.IsNullOrEmpty(NewPassword))
         {
             SetStatus("Enter a new password first", isError: true);
             return;
@@ -374,8 +384,8 @@ public partial class PostgresViewModel : BaseViewModel, IModule
 
         await RunSafeAsync(async () =>
         {
-            var sql = $"ALTER USER \\\"{user.Name}\\\" WITH PASSWORD '{NewPassword}';";
-            await _ssh.RunCommandAsync($"sudo -u postgres psql -c \"{sql}\" 2>&1");
+            string Sql(string password) => $"ALTER USER {PgCommands.Ident(user.Name)} WITH PASSWORD {password};";
+            await ExecSqlAsync(Sql(PgCommands.Literal(NewPassword)), logSql: Sql("'***'"));
             NewPassword = string.Empty;
             SetStatus($"Password changed for {user.Name}");
         });
@@ -384,12 +394,11 @@ public partial class PostgresViewModel : BaseViewModel, IModule
     [RelayCommand]
     private async Task DropUserAsync(PgUser user)
     {
+        if (!Confirm($"Drop user '{user.Name}'?", "Drop user")) return;
+
         await RunSafeAsync(async () =>
         {
-            var sql = $"DROP USER IF EXISTS \\\"{user.Name}\\\";";
-            var result = await _ssh.RunCommandAsync($"sudo -u postgres psql -c \"{sql}\" 2>&1");
-            if (result.Contains("ERROR"))
-                throw new Exception(result);
+            await ExecSqlAsync($"DROP USER IF EXISTS {PgCommands.Ident(user.Name)};");
             await LoadUsersAsync();
             SetStatus($"User {user.Name} dropped");
         });
@@ -423,8 +432,11 @@ public partial class PostgresViewModel : BaseViewModel, IModule
                 return;
             }
 
-            var password = string.IsNullOrWhiteSpace(ConnStringPassword) ? "YOUR_PASSWORD" : ConnStringPassword;
-            ConnectionString = $"Host={host};Port={Port};Database={ConnStringDb};Username={ConnStringUser};Password={password}";
+            var password = string.IsNullOrEmpty(ConnStringPassword) ? "YOUR_PASSWORD" : ConnStringPassword;
+            ConnectionString = $"Host={host};Port={Port};" +
+                               $"Database={PgCommands.ConnStringValue(ConnStringDb)};" +
+                               $"Username={PgCommands.ConnStringValue(ConnStringUser)};" +
+                               $"Password={PgCommands.ConnStringValue(password)}";
             SetStatus($"Connection string generated ({ConnHostMode})");
         });
     }
@@ -438,4 +450,8 @@ public partial class PostgresViewModel : BaseViewModel, IModule
             SetStatus("Copied to clipboard!");
         }
     }
+
+    // Paths come from the running server; without them there is nothing safe to edit
+    private static string? NotLoadedError(string path) =>
+        path.Length == 0 ? "PostgreSQL settings are not loaded - make sure it is running and press Refresh." : null;
 }

@@ -18,7 +18,10 @@ public class SshService : IDisposable
 
     public void Connect(string host, string username, string privateKeyPath, string? passphrase = null)
     {
-        Disconnect();
+        // Release the previous session's clients instead of only disconnecting them
+        Dispose();
+        _ssh = null;
+        _sftp = null;
 
         AppLog.Info($"Connecting to {username}@{host}:22 using key {privateKeyPath}" +
                     (passphrase == null ? " (no passphrase)" : " (with passphrase)"));
@@ -99,12 +102,13 @@ public class SshService : IDisposable
     /// Runs a command and reports its exit code. Unlike <see cref="RunCommand"/>, a failure stays
     /// visible to the caller instead of being folded into the returned text.
     /// </summary>
-    public async Task<CommandResult> ExecuteAsync(string command)
+    /// <param name="logAs">What to write to the app log instead of the command, when it carries a secret.</param>
+    public async Task<CommandResult> ExecuteAsync(string command, string? logAs = null)
     {
         var client = ConnectedClient();
         return await Task.Run(() =>
         {
-            AppLog.Info($"$ {command}");
+            AppLog.Info($"$ {logAs ?? command}");
             using var cmd = client.CreateCommand(command);
             cmd.Execute();
             return LogResult(new CommandResult(cmd.ExitStatus ?? -1, cmd.Result, cmd.Error));

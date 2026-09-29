@@ -13,6 +13,9 @@ public partial class FirewallViewModel : BaseViewModel, IModule
 
     private readonly SshService _ssh;
 
+    // Every port sshd listens on; the first one is the port this session came in on
+    private List<string> _sshPorts = ["22"];
+
     [ObservableProperty] private bool _isEnabled;
     [ObservableProperty] private bool _isBusyFirewall;
     [ObservableProperty] private string _sshPort = "22";
@@ -41,61 +44,47 @@ public partial class FirewallViewModel : BaseViewModel, IModule
         IsBusyFirewall = false;
     }
 
-    private async Task<string> ReadSshPortFromServerAsync()
+    private async Task ReadSshPortsAsync()
     {
-        var portLine = await _ssh.RunCommandAsync(
-            "grep -E '^Port ' /etc/ssh/sshd_config 2>/dev/null | awk '{print $2}' | head -1");
-        return string.IsNullOrWhiteSpace(portLine) ? "22" : portLine.Trim();
+        var ports = (await _ssh.ExecuteAsync(Ufw.SshPortsCommand)).Lines;
+        _sshPorts = ports.Count > 0 ? ports : ["22"];
+        SshPort = _sshPorts[0];
     }
 
-    // Full re-read from server: status + SSH port + rules
-    private async Task ReloadFromServerAsync()
+    // Full re-read from server: status + rules (+ SSH ports unless the caller just read them)
+    private async Task ReloadFromServerAsync() => await ReloadFromServerAsync(readSshPorts: true);
+
+    private async Task ReloadFromServerAsync(bool readSshPorts)
     {
-        SshPort = await ReadSshPortFromServerAsync();
-        var status = await _ssh.RunCommandAsync("ufw status 2>/dev/null | head -1");
-        IsEnabled = status.Trim().Equals("Status: active", StringComparison.OrdinalIgnoreCase);
-        await LoadRulesAsync();
+        if (readSshPorts) await ReadSshPortsAsync();
+        // "Status: active" heads the numbered listing too - one call gives both
+        var numbered = (await _ssh.ExecuteAsync("ufw status numbered 2>/dev/null")).Output;
+        IsEnabled = numbered.TrimStart().StartsWith("Status: active", StringComparison.OrdinalIgnoreCase);
+        LoadRules(IsEnabled ? Ufw.ParseNumbered(numbered) : []);
     }
 
-    private async Task LoadRulesAsync()
+    private async Task<List<UfwEntry>> ReadEntriesAsync() =>
+        Ufw.ParseNumbered((await _ssh.ExecuteAsync("ufw status numbered 2>/dev/null")).Output);
+
+    private void LoadRules(IReadOnlyList<UfwEntry> entries)
     {
         Rules.Clear();
 
-        // Always show SSH as protected rule first (using actual port)
+        // Always show SSH as protected rule first (using the actual port)
         Rules.Add(new FirewallRule(Port: SshPort, Proto: "tcp", From: "any", Action: "allow", IsProtected: true));
 
-        if (!IsEnabled) return;
-
-        var output = await _ssh.RunCommandAsync("ufw status numbered 2>/dev/null");
-        foreach (var line in output.Split('\n'))
+        foreach (var rule in Ufw.ToRules(entries))
         {
-            // Parse lines like: [ 1] 22/tcp                     ALLOW IN    Anywhere
-            var trimmed = line.Trim();
-            if (!trimmed.StartsWith("[")) continue;
-
-            var content = trimmed.TrimStart('[', ' ');
-            var bracketEnd = content.IndexOf(']');
-            if (bracketEnd < 0) continue;
-            content = content[(bracketEnd + 1)..].Trim();
-
-            var parts = content.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length < 3) continue;
-
-            var portProto = parts[0];
-            var action = parts[1].ToLower() == "allow" ? "allow" : "deny";
-            var from = parts.Length >= 4 ? parts[^1] : "any";
-
-            var port = portProto.Contains('/') ? portProto.Split('/')[0] : portProto;
-            var proto = portProto.Contains('/') ? portProto.Split('/')[1] : "any";
-
-            // Skip SSH — already shown as protected
-            if (port == SshPort && proto is "tcp" or "any") continue;
-            // Skip IPv6 duplicates
-            if (from.Contains("(v6)") || port.Contains("(v6)")) continue;
-
-            Rules.Add(new FirewallRule(port, proto, from, action));
+            // SSH allow rules are already represented by the protected entry above
+            if (IsSshAllow(rule)) continue;
+            Rules.Add(rule);
         }
     }
+
+    // Any rule that lets SSH in (port, range, list or the OpenSSH profile) is protected
+    private bool IsSshAllow(FirewallRule rule) =>
+        rule.Action is "allow" or "limit" &&
+        _sshPorts.Any(p => int.TryParse(p, out var port) && Ufw.CoversTcpPort(rule, port));
 
     [RelayCommand]
     private async Task EnableAsync()
@@ -104,17 +93,22 @@ public partial class FirewallViewModel : BaseViewModel, IModule
         await RunSafeAsync(async () =>
         {
             SetStatus("Reading SSH config...");
-            SshPort = await ReadSshPortFromServerAsync();
+            await ReadSshPortsAsync();
 
-            SetStatus($"Allowing SSH (port {SshPort}) before enabling firewall...");
-            // ALWAYS allow SSH first — no exceptions
-            await _ssh.RunCommandAsync($"ufw allow {SshPort}/tcp");
+            // ALWAYS allow SSH first — every port sshd uses, starting with this session's
+            foreach (var port in _sshPorts)
+            {
+                SetStatus($"Allowing SSH (port {port}) before enabling firewall...");
+                var allowed = await _ssh.ExecuteAsync($"ufw allow {port}/tcp 2>&1");
+                if (!allowed.Succeeded)
+                    throw new InvalidOperationException($"Could not allow SSH port {port}, firewall NOT enabled: {allowed.Text}");
+            }
 
             SetStatus("Enabling UFW...");
-            await _ssh.RunCommandAsync("ufw --force enable");
-
-            await ReloadFromServerAsync();
-            SetStatus($"Firewall enabled. SSH port {SshPort} is allowed.");
+            var r = await _ssh.ExecuteAsync("ufw --force enable 2>&1");
+            await ReloadFromServerAsync(readSshPorts: false);
+            if (!r.Succeeded) throw new InvalidOperationException(r.Text);
+            SetStatus($"Firewall enabled. SSH port {string.Join(", ", _sshPorts)} is allowed.");
         });
         IsBusyFirewall = false;
     }
@@ -126,8 +120,9 @@ public partial class FirewallViewModel : BaseViewModel, IModule
         await RunSafeAsync(async () =>
         {
             SetStatus("Disabling UFW...");
-            await _ssh.RunCommandAsync("ufw disable");
+            var r = await _ssh.ExecuteAsync("ufw disable 2>&1");
             await ReloadFromServerAsync();
+            if (!r.Succeeded) throw new InvalidOperationException(r.Text);
             SetStatus("Firewall disabled.");
         });
         IsBusyFirewall = false;
@@ -136,33 +131,32 @@ public partial class FirewallViewModel : BaseViewModel, IModule
     [RelayCommand]
     private async Task AddRuleAsync()
     {
-        if (string.IsNullOrWhiteSpace(NewPort))
+        var (command, error) = Ufw.AddCommand(NewAction, NewPort, NewProto, NewFrom);
+        if (command == null)
         {
-            SetStatus("Enter a port number", isError: true);
+            SetStatus(error!, isError: true);
             return;
         }
 
         IsBusyFirewall = true;
         await RunSafeAsync(async () =>
         {
-            // Re-read actual SSH port before applying anything
+            // Re-read actual SSH ports before applying anything
             SetStatus("Reading SSH config...");
-            SshPort = await ReadSshPortFromServerAsync();
+            await ReadSshPortsAsync();
 
             if (NewAction == "deny")
-                CheckNotBlockingSsh(NewPort.Trim(), SshPort);
+                foreach (var port in _sshPorts)
+                    CheckNotBlockingSsh(NewPort.Trim(), port);
 
-            var fromPart = NewFrom is "any" or "" ? "" : $"from {NewFrom} to any";
-            var protoPart = NewProto == "any" ? NewPort : $"{NewPort}/{NewProto}";
-            var cmd = string.IsNullOrWhiteSpace(fromPart)
-                ? $"ufw {NewAction} {protoPart}"
-                : $"ufw {NewAction} {fromPart} port {NewPort} proto {NewProto}";
+            var r = await _ssh.ExecuteAsync(command);
+            await ReloadFromServerAsync(readSshPorts: false);
+            if (!r.Succeeded || r.Text.StartsWith("ERROR", StringComparison.Ordinal))
+                throw new InvalidOperationException(r.Text);
 
-            var result = await _ssh.RunCommandAsync(cmd);
             NewPort = string.Empty;
             NewFrom = "any";
-            await ReloadFromServerAsync();
-            SetStatus($"Rule added: {result.Trim()}");
+            SetStatus($"Rule added: {r.Text}");
         });
         IsBusyFirewall = false;
     }
@@ -200,14 +194,22 @@ public partial class FirewallViewModel : BaseViewModel, IModule
         IsBusyFirewall = true;
         await RunSafeAsync(async () =>
         {
-            // Re-read SSH port before deleting — double-check it's not SSH
-            SshPort = await ReadSshPortFromServerAsync();
-            if (rule.Port == SshPort && rule.Proto is "tcp" or "any" && rule.Action == "allow")
-                throw new Exception($"Cannot remove SSH allow rule for port {SshPort}.");
+            // Re-read SSH ports before deleting — double-check it's not SSH
+            await ReadSshPortsAsync();
+            if (IsSshAllow(rule))
+                throw new Exception($"Cannot remove the SSH allow rule for port {rule.Port}.");
 
-            var proto = rule.Proto == "any" ? rule.Port : $"{rule.Port}/{rule.Proto}";
-            await _ssh.RunCommandAsync($"ufw delete {rule.Action} {proto}");
-            await ReloadFromServerAsync();
+            // Rule numbers change with every edit, so look them up right before deleting
+            var numbers = Ufw.NumbersOf(rule, await ReadEntriesAsync());
+            if (numbers.Count == 0)
+            {
+                await ReloadFromServerAsync(readSshPorts: false);
+                throw new InvalidOperationException("That rule no longer exists - the list is refreshed.");
+            }
+
+            var r = await _ssh.ExecuteAsync(Ufw.DeleteCommand(numbers));
+            await ReloadFromServerAsync(readSshPorts: false);
+            if (!r.Succeeded) throw new InvalidOperationException(r.Text);
             SetStatus("Rule removed");
         });
         IsBusyFirewall = false;
