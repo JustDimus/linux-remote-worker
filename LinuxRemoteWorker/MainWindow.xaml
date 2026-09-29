@@ -8,6 +8,7 @@
         xmlns:fw="clr-namespace:LinuxRemoteWorker.Modules.Firewall"
         xmlns:repo="clr-namespace:LinuxRemoteWorker.Modules.Repositories"
         xmlns:svc="clr-namespace:LinuxRemoteWorker.Modules.Services"
+        xmlns:nginx="clr-namespace:LinuxRemoteWorker.Modules.Nginx"
         xmlns:logs="clr-namespace:LinuxRemoteWorker.Modules.Logs"
         xmlns:applog="clr-namespace:LinuxRemoteWorker.Modules.AppLogs"
         xmlns:conv="clr-namespace:LinuxRemoteWorker.Converters"
@@ -37,6 +38,9 @@
         </DataTemplate>
         <DataTemplate DataType="{x:Type svc:ServicesViewModel}">
             <svc:ServicesView/>
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type nginx:NginxViewModel}">
+            <nginx:NginxView/>
         </DataTemplate>
         <DataTemplate DataType="{x:Type logs:LogsViewModel}">
             <logs:LogsView/>
@@ -137,6 +141,14 @@
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="⚙" Margin="0 0 8 0"/>
                             <TextBlock Text=".NET Services"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Command="{Binding NavigateToCommand}" CommandParameter="{Binding NginxVM}"
+                            IsEnabled="{Binding IsConnected}"
+                            Style="{StaticResource NavButtonStyle}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="🌐" Margin="0 0 8 0"/>
+                            <TextBlock Text="Nginx &amp; SSL"/>
                         </StackPanel>
                     </Button>
                     <Button Command="{Binding NavigateToCommand}" CommandParameter="{Binding FirewallVM}"

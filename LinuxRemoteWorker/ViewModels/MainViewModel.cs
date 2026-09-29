@@ -4,6 +4,7 @@ using LinuxRemoteWorker.Core;
 using LinuxRemoteWorker.Modules.AppLogs;
 using LinuxRemoteWorker.Modules.Firewall;
 using LinuxRemoteWorker.Modules.Logs;
+using LinuxRemoteWorker.Modules.Nginx;
 using LinuxRemoteWorker.Modules.Postgres;
 using LinuxRemoteWorker.Modules.Repositories;
 using LinuxRemoteWorker.Modules.Services;
@@ -21,6 +22,7 @@ public partial class MainViewModel : BaseViewModel
     public FirewallViewModel FirewallVM { get; }
     public RepositoriesViewModel RepositoriesVM { get; }
     public ServicesViewModel ServicesVM { get; }
+    public NginxViewModel NginxVM { get; }
     public LogsViewModel LogsVM { get; }
     public AppLogViewModel AppLogVM { get; }
 
@@ -37,6 +39,7 @@ public partial class MainViewModel : BaseViewModel
         FirewallVM = new FirewallViewModel(_ssh);
         RepositoriesVM = new RepositoriesViewModel(_ssh);
         ServicesVM = new ServicesViewModel(_ssh);
+        NginxVM = new NginxViewModel(_ssh);
         LogsVM = new LogsViewModel(_ssh);
         AppLogVM = new AppLogViewModel();
 

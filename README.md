@@ -2,8 +2,8 @@
 
 **A Windows desktop console for the Linux servers you actually run.**
 Connect over SSH with a key, then install PostgreSQL, clone repositories, deploy .NET services as
-systemd units, open firewall ports and read logs — from one window, without memorising a single
-`systemctl` incantation.
+systemd units, put them behind nginx with free HTTPS, open firewall ports and read logs — from one
+window, without memorising a single `systemctl` incantation.
 
 <p align="left">
   <img alt=".NET 8" src="https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet&logoColor=white">
@@ -44,6 +44,7 @@ screen per job, and each screen runs the same commands a competent sysadmin woul
 | 🐘 **PostgreSQL** | Install the server, edit `listen_addresses` and `pg_hba.conf`, manage users and databases, grant access, and generate a ready-to-paste connection string |
 | 📁 **Repositories** | Install git, generate a deploy key, clone private repos, pull updates, remove clones |
 | ⚙ **.NET Services** | Install the .NET SDK, publish a project from a cloned repo, write a systemd unit, then start / stop / restart / redeploy it |
+| 🌐 **Nginx & SSL** | Install nginx, create reverse-proxy or static sites, edit/enable/disable/delete them safely, get Let's Encrypt certificates, watch expiry and renew |
 | 🛡 **Firewall** | Enable or disable `ufw`, list rules, open and close ports |
 | 📋 **Server Logs** | `journalctl` for any managed unit (last hour, last day, or live tail) plus the app's own file logs, viewable and downloadable |
 | 🐞 **Application Log** | This app's own diagnostic log — always available, even before you connect |
@@ -66,6 +67,7 @@ Everything is idempotent: re-running an action on an already-configured server i
 │ 🐘 PostgreSQL          │   PASSPHRASE     [ •••••••                  ]        │
 │ 📁 Repositories        │                                                      │
 │ ⚙  .NET Services       │   [        Connect        ] [ 💾 Save ]              │
+│ 🌐 Nginx & SSL         │                                                      │
 │ 🛡  Firewall           │                                                      │
 │ 📋 Server Logs         │   ⚠ The server rejected the key                      │
 │                        │     Check that the matching public key is in         │
@@ -219,6 +221,18 @@ The app keeps everything it owns under one root, so you can always see — and r
 - **Bootstrap:** the user, directory tree and permissions are created on demand and re-checked
   before each action. Running it twice changes nothing.
 
+The **🌐 Nginx & SSL** module works in the standard Debian/Ubuntu nginx layout rather than under
+`/srv/lrw`, because that is where nginx and certbot expect things:
+
+| Path | What |
+| --- | --- |
+| `/etc/nginx/sites-available/<site>` | One file per site; created ones start with `# Created by LinuxRemoteWorker` |
+| `/etc/nginx/sites-enabled/<site>` | Symlink that turns a site on |
+| `/etc/nginx/conf.d/lrw-websocket.conf` | A tiny `map` used by proxied sites for WebSocket upgrades |
+| `/var/www/<site>/` | Default root of static sites (a placeholder `index.html` is added only if missing) |
+| `/var/log/nginx/<site>.access.log`, `.error.log` | Per-site logs |
+| `/etc/letsencrypt/` | certbot's certificates, account and renewal settings |
+
 To remove the app's footprint entirely:
 
 ```bash
@@ -227,6 +241,9 @@ rm -f /etc/systemd/system/lrw-*.service && systemctl daemon-reload
 rm -rf /srv/lrw
 userdel lrw
 ```
+
+Sites and certificates are ordinary nginx/certbot state — remove them from the Nginx screen (or with
+`certbot delete --cert-name <name>`) if you no longer want them.
 
 ---
 
@@ -261,6 +278,36 @@ The deployment pipeline:
 4. Start, stop, restart, or **redeploy** (pull + republish + restart) from the service list.
 5. Edit the generated unit file in place, or read the service's journal — last hour, last day, or a
    live tail.
+
+### 🌐 Nginx & SSL
+Install nginx, then run it the way a careful admin would. **Every change is a transaction:** the app
+writes the change, runs `nginx -t` on the whole configuration, and reloads only if the test passes.
+If it fails, the previous files are put back and nginx keeps serving the old configuration — a typo
+never takes your sites down. The exact `nginx -t` output is shown on screen.
+
+- **Service:** version and state, *Test config*, *Reload*, *Restart*, *Start*, *Stop*. Reload,
+  restart and start refuse to run while the configuration test fails.
+- **Sites:** every file in `sites-available` with its domains, ports, target and HTTPS state. Enable,
+  disable (the file stays), edit in place, or delete. Links in `sites-enabled` are recognised even
+  when they carry a different name.
+- **New site:** a reverse proxy — pick one of your deployed .NET services and its port is filled in
+  from `ASPNETCORE_URLS` — with forwarded headers and optional WebSocket/SignalR support, or a
+  static site with an optional single-page-app fallback (its root must live in `/var/www`, `/srv` or
+  `/opt`, so a typo can never publish `/`, `/etc` or the deploy key). The app warns when nothing listens on the
+  upstream port yet (the classic *502 Bad Gateway*). In ASP.NET Core, call
+  `app.UseForwardedHeaders()` so the app sees the real client IP and the `https` scheme.
+- **nginx.conf:** the global configuration opens in the same safe editor.
+- **SSL certificates (Let's Encrypt):** installs `certbot` with its nginx plugin, then *🔒 HTTPS* on
+  a site does the standard `certbot --nginx` flow: certificate issued, TLS added to that site, HTTP
+  redirected to HTTPS. Before contacting Let's Encrypt the app checks that every domain resolves
+  (a failed validation counts against rate limits); a *Dry run* option uses the staging server.
+- **Certificate list:** domains, expiry and days left (amber inside the 30-day renewal window, red
+  when close or expired), which sites use each certificate, *Renew now*, *Renew all that are due*,
+  *Test renewal (dry run)*, and delete — refused while a config still points at the certificate,
+  because nginx would then fail to start.
+- **Auto-renewal:** shows whether certbot's timer is active and when it runs next, and can enable it.
+- **Firewall hint:** if `ufw` is active and blocks port 80 or 443, one click opens both.
+- **Logs:** the last 200 lines of any file in `/var/log/nginx`.
 
 ### 🛡 Firewall
 Enable or disable `ufw`, list the active rules, add a rule (port, protocol, allow/deny), and delete
@@ -337,7 +384,9 @@ LinuxRemoteWorker/
 ├── Core/
 │   ├── AppLog.cs              Thread-safe file logger, in-memory tail, retention
 │   ├── ConnectionDiagnostics.cs  Preflight checks + exception → plain-language problem
-│   ├── SshService.cs          SSH/SFTP session, command execution, streaming
+│   ├── SshService.cs          SSH/SFTP session, command execution (with exit codes), streaming
+│   ├── CommandResult.cs       Exit code + stdout/stderr of a remote command
+│   ├── Shell.cs               Shell quoting and verbatim file writes (quoted heredoc)
 │   ├── BootstrapService.cs    Idempotent server-side setup
 │   ├── DeployPaths.cs         The single source of truth for server paths
 │   ├── ProfileService.cs      Saved connection profiles (JSON)
@@ -349,6 +398,7 @@ LinuxRemoteWorker/
 ├── Views/                     ConnectView, InfoCard
 ├── Modules/
 │   ├── AppLogs/               🐞 the app's own log viewer
+│   ├── Nginx/                 🌐 sites, safe config edits, certbot certificates
 │   ├── SystemInfo/  Postgres/  Repositories/  Services/  Firewall/  Logs/
 ├── Converters/                Value converters used across the XAML
 └── Behaviors/AutoScroll.cs    Keeps log views pinned to the bottom
@@ -383,6 +433,8 @@ and puts the message on screen instead of crashing the app.
 - **Host key checking** is not enforced on the initial SSH connection — use it on networks you
   trust.
 - **Logs may contain command text**, including database and user names. Review before sharing.
+- **Nginx input is whitelisted.** Domains, site names, upstream URLs, paths and e-mail addresses are
+  validated before they reach a config file or a shell command, and every value is shell-quoted.
 
 ---
 
@@ -410,6 +462,18 @@ are the wrong half of the pair.
 The SSH session dropped. Go back to **🔗 Connection** and reconnect — the **🐞 Application Log**
 shows when and why the session ended.
 
+**"The site shows 502 Bad Gateway."**
+nginx is fine; nothing answers on the upstream port. Start the service in **⚙ .NET Services** and
+check that its `ASPNETCORE_URLS` port matches the site's `proxy_pass`.
+
+**"The certificate request failed."**
+Read the command output under the Nginx screen — certbot names the reason. Almost always the domain
+does not point to this server yet, or port 80 is blocked by `ufw` or a cloud security group. Fix it,
+then tick *Dry run* and try again before making a real request.
+
+**"Saving a site says nginx -t failed."**
+Nothing was changed on the server. The **NGINX OUTPUT** box shows the file and line nginx rejected.
+
 **Anything else** — open **🐞 Application Log**, filter for `ERROR`, and read the last few lines.
 That file is designed to answer this question.
 
@@ -419,8 +483,8 @@ That file is designed to answer this question.
 
 - [ ] Non-standard SSH ports and jump hosts
 - [ ] Host key verification with a known-hosts store
-- [ ] Nginx / reverse proxy module
-- [ ] Let's Encrypt certificate management
+- [x] Nginx / reverse proxy module
+- [x] Let's Encrypt certificate management
 - [ ] Docker container module
 - [ ] Scheduled backups for PostgreSQL databases
 

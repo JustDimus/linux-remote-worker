@@ -29,4 +29,23 @@ public static class DeployPaths
     // GIT_SSH_COMMAND prefix to clone/fetch with the deploy key
     public static string GitSshEnv =>
         $"GIT_SSH_COMMAND='ssh -i {GitKey} -o StrictHostKeyChecking=accept-new -o IdentitiesOnly=yes'";
+
+    // nginx (Debian/Ubuntu package layout) — system locations, not program-owned
+    public const string NginxConf = "/etc/nginx/nginx.conf";
+    public const string NginxSitesAvailable = "/etc/nginx/sites-available";
+    public const string NginxSitesEnabled = "/etc/nginx/sites-enabled";
+    public const string NginxConfD = "/etc/nginx/conf.d";
+    public const string NginxLogs = "/var/log/nginx";
+    public const string WebRoot = "/var/www";
+
+    // http{}-level map shared by proxied sites; lrw_ variable name so it cannot clash with a user's own map
+    public const string NginxWebSocketMap = NginxConfD + "/lrw-websocket.conf";
+
+    // Let's Encrypt (certbot)
+    public const string LetsEncryptLive = "/etc/letsencrypt/live";
+
+    public static string SiteAvailablePath(string site) => $"{NginxSitesAvailable}/{site}";
+    public static string SiteEnabledPath(string site) => $"{NginxSitesEnabled}/{site}";
+    public static string SiteWebRoot(string site) => $"{WebRoot}/{site}";
+    public static string CertLiveDir(string certName) => $"{LetsEncryptLive}/{certName}";
 }
