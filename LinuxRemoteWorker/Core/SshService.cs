@@ -7,6 +7,7 @@ namespace LinuxRemoteWorker.Core;
 public class SshService : IDisposable
 {
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(20);
+    private const int StreamTailLines = 50;
 
     private SshClient? _ssh;
     private SftpClient? _sftp;
@@ -92,26 +93,67 @@ public class SshService : IDisposable
     }
 
     public async Task<string> RunCommandStreamAsync(string command, Action<string> onLine, CancellationToken ct = default)
-    {
-        if (_ssh == null || !_ssh.IsConnected)
-            throw new InvalidOperationException("Not connected");
+        => (await ExecuteStreamAsync(command, onLine, ct)).Output.Trim();
 
+    /// <summary>
+    /// Runs a command and reports its exit code. Unlike <see cref="RunCommand"/>, a failure stays
+    /// visible to the caller instead of being folded into the returned text.
+    /// </summary>
+    public async Task<CommandResult> ExecuteAsync(string command)
+    {
+        var client = ConnectedClient();
         return await Task.Run(() =>
         {
-            using var cmd = _ssh.CreateCommand(command);
+            AppLog.Info($"$ {command}");
+            using var cmd = client.CreateCommand(command);
+            cmd.Execute();
+            return LogResult(new CommandResult(cmd.ExitStatus ?? -1, cmd.Result, cmd.Error));
+        });
+    }
+
+    /// <summary>
+    /// Like <see cref="ExecuteAsync"/>, but hands every stdout line to <paramref name="onLine"/> as it
+    /// arrives. The result's Output keeps only the last lines — where failures are reported.
+    /// </summary>
+    public async Task<CommandResult> ExecuteStreamAsync(string command, Action<string> onLine, CancellationToken ct = default)
+    {
+        var client = ConnectedClient();
+        return await Task.Run(() =>
+        {
+            AppLog.Info($"$ {command}");
+            using var cmd = client.CreateCommand(command);
             var asyncResult = cmd.BeginExecute();
             using var reader = new StreamReader(cmd.OutputStream);
+            var tail = new Queue<string>();
             while (!asyncResult.IsCompleted || !reader.EndOfStream)
             {
                 ct.ThrowIfCancellationRequested();
                 var line = reader.ReadLine();
-                if (line != null)
-                    onLine(line);
+                if (line == null) continue;
+                onLine(line);
+                tail.Enqueue(line);
+                if (tail.Count > StreamTailLines) tail.Dequeue();
             }
             cmd.EndExecute(asyncResult);
-            return cmd.Result.Trim();
+            return LogResult(new CommandResult(cmd.ExitStatus ?? -1, string.Join("\n", tail), cmd.Error));
         }, ct);
     }
+
+    private SshClient ConnectedClient() =>
+        _ssh is { IsConnected: true } client ? client : throw new InvalidOperationException("Not connected");
+
+    // A failure explains itself at the end of the output, so that is the part worth logging
+    private static CommandResult LogResult(CommandResult result)
+    {
+        if (result.Succeeded)
+            AppLog.Info($"exit=0 out: {Truncate(result.Text)}");
+        else
+            AppLog.Warn($"exit={result.ExitCode} out: {TruncateStart(result.Text)}");
+        return result;
+    }
+
+    private static string TruncateStart(string s, int max = 500)
+        => s.Length <= max ? s : $"(… {s.Length - max} chars) " + s[^max..];
 
     public async Task DownloadFileAsync(string remotePath, string localPath)
     {
