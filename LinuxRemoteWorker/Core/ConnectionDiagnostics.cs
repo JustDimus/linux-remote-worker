@@ -1,4 +1,6 @@
 using System.IO;
+using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text;
 using Renci.SshNet.Common;
@@ -163,35 +165,76 @@ public static class ConnectionDiagnostics
         }
     }
 
-    private static ConnectionProblem ExplainSocket(SocketException se, string host, string detail) => se.SocketErrorCode switch
+    private static ConnectionProblem ExplainSocket(SocketException se, string host, string detail)
     {
-        SocketError.HostNotFound or SocketError.NoData => new ConnectionProblem(
-            "Host name could not be resolved",
-            detail,
-            $"DNS does not know '{host}'. Check the spelling, or use the server's IP address instead."),
+        // A bare IPv6 literal is the single most common cause of "network unreachable":
+        // the address is fine, the machine simply has no IPv6 route to it.
+        var isIPv6Literal = IPAddress.TryParse(host, out var parsed)
+                            && parsed.AddressFamily == AddressFamily.InterNetworkV6;
 
-        SocketError.ConnectionRefused => new ConnectionProblem(
-            "Connection refused on port 22",
-            detail,
-            $"{host} is reachable but nothing is listening on port 22. Make sure sshd runs on the server " +
-            "('systemctl status ssh'), or that SSH is not on a custom port."),
+        return se.SocketErrorCode switch
+        {
+            SocketError.HostNotFound or SocketError.NoData => new ConnectionProblem(
+                "Host name could not be resolved",
+                detail,
+                $"DNS does not know '{host}'. Check the spelling, or use the server's IP address instead."),
 
-        SocketError.TimedOut => new ConnectionProblem(
-            "Connection timed out",
-            detail,
-            $"No answer from {host}:22. Usually a firewall, a cloud security group that does not allow " +
-            "your IP, or a VPN that is not connected."),
+            SocketError.ConnectionRefused => new ConnectionProblem(
+                "Connection refused on port 22",
+                detail,
+                $"{host} is reachable but nothing is listening on port 22. Make sure sshd runs on the server " +
+                "('systemctl status ssh'), or that SSH is not on a custom port."),
 
-        SocketError.NetworkUnreachable or SocketError.HostUnreachable => new ConnectionProblem(
-            "The server is unreachable from this network",
-            detail,
-            $"No route to {host}. Check your internet connection or VPN."),
+            SocketError.TimedOut => new ConnectionProblem(
+                "Connection timed out",
+                detail,
+                $"No answer from {host}:22. Usually a firewall, a cloud security group that does not allow " +
+                "your IP, or a VPN that is not connected."),
 
-        _ => new ConnectionProblem(
-            "Network error while connecting",
-            detail,
-            $"Socket error {se.SocketErrorCode} while reaching {host}:22.")
-    };
+            SocketError.NetworkUnreachable or SocketError.HostUnreachable
+                or SocketError.NetworkDown or SocketError.AddressFamilyNotSupported
+                when isIPv6Literal => new ConnectionProblem(
+                "This computer has no IPv6 route to the server",
+                detail,
+                $"{host} is an IPv6 address, and this machine cannot reach the IPv6 internet" +
+                (HasGlobalIPv6() ? "" : " (it currently has no global IPv6 address at all)") +
+                ". Many home and office networks still provide IPv4 only, which is why the same server " +
+                "may work from another computer. Enter the server's IPv4 address in HOST / IP instead - " +
+                "your hosting panel lists both."),
+
+            SocketError.NetworkUnreachable or SocketError.HostUnreachable
+                or SocketError.NetworkDown => new ConnectionProblem(
+                "The server is unreachable from this network",
+                detail,
+                $"No route to {host}. Check your internet connection or VPN."),
+
+            _ => new ConnectionProblem(
+                "Network error while connecting",
+                detail,
+                $"Socket error {se.SocketErrorCode} while reaching {host}:22.")
+        };
+    }
+
+    /// <summary>True when this machine holds a routable (non link-local) IPv6 address.</summary>
+    private static bool HasGlobalIPv6()
+    {
+        try
+        {
+            return NetworkInterface.GetAllNetworkInterfaces()
+                .Where(n => n.OperationalStatus == OperationalStatus.Up
+                            && n.NetworkInterfaceType != NetworkInterfaceType.Loopback)
+                .SelectMany(n => n.GetIPProperties().UnicastAddresses)
+                .Any(a => a.Address.AddressFamily == AddressFamily.InterNetworkV6
+                          && !a.Address.IsIPv6LinkLocal
+                          && !a.Address.IsIPv6SiteLocal
+                          && !IPAddress.IsLoopback(a.Address));
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn($"Could not inspect local IPv6 addresses: {ex.Message}");
+            return true; // unknown - do not claim the machine lacks IPv6
+        }
+    }
 
     private static bool LooksLikeBadPassphrase(string detail) =>
         detail.Contains("passphrase", StringComparison.OrdinalIgnoreCase) ||
