@@ -151,6 +151,7 @@ into plain language:
 | DNS cannot resolve the host | *Host name could not be resolved* — check the spelling or use the IP |
 | Nothing listening on port 22 | *Connection refused on port 22* — is `sshd` running, or on another port? |
 | No answer at all | *The server did not answer in time* — firewall, cloud security group, or VPN |
+| IPv6 host, IPv4-only network | *This computer has no IPv6 route to the server* — use the server's IPv4 address |
 | Server refuses the key | *The server rejected the key* — check `~/.ssh/authorized_keys` for that user |
 | Encrypted key, no passphrase | *The private key is encrypted and needs a passphrase* |
 | Wrong passphrase or odd format | *Wrong key passphrase, or an unsupported key format* — with the `ssh-keygen -m PEM` fix |
@@ -448,6 +449,12 @@ panel right below the button.
 The network is fine and the key was read; the server refused the login. Check that the public key is
 in `~/.ssh/authorized_keys` for that exact user, that the file is `chmod 600` and its directory
 `chmod 700`, and that `PubkeyAuthentication yes` is set in `/etc/ssh/sshd_config`.
+
+**"This computer has no IPv6 route to the server."**
+The host is an IPv6 address (something like `2a01:4f8:1c18:88ba::1`) and your network is IPv4-only —
+common on home and office connections. The same server will work from a machine that has IPv6, which
+is what makes this confusing. Put the server's **IPv4** address in HOST / IP instead; hosting panels
+list both.
 
 **"Connection timed out."**
 Nothing answered on port 22. Check the cloud security group / firewall allows your IP, that the

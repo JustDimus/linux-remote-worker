@@ -44,8 +44,6 @@ obj/x86/
 bld/
 [Oo]bj/
 [Oo]ut/
-# No [Ll]og/ or [Ll]ogs/ folder rules: the app logs to %AppData%\LinuxRemoteWorker\logs,
-# never into the repo, and those rules hid the Modules/Logs source folder (*.log below still applies).
 
 # Build results on 'Bin' directories
 **/[Bb]in/*
