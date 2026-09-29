@@ -44,6 +44,12 @@ public partial class MainViewModel : BaseViewModel
         AppLogVM = new AppLogViewModel();
 
         ConnectVM.ConnectedSuccessfully += OnConnected;
+        // Disconnecting on the connection screen must also lock the module navigation again
+        ConnectVM.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(ConnectViewModel.IsConnected) && !ConnectVM.IsConnected)
+                IsConnected = false;
+        };
     }
 
     private async void OnConnected()

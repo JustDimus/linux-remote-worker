@@ -14,6 +14,11 @@ public abstract partial class BaseViewModel : ObservableObject
         HasError = isError;
     }
 
+    /// <summary>Yes/No question before a destructive action.</summary>
+    protected static bool Confirm(string message, string caption) =>
+        System.Windows.MessageBox.Show(message, caption, System.Windows.MessageBoxButton.YesNo,
+            System.Windows.MessageBoxImage.Warning) == System.Windows.MessageBoxResult.Yes;
+
     protected async Task RunSafeAsync(Func<Task> action, string? busyMessage = null)
     {
         IsBusy = true;

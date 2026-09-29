@@ -197,7 +197,8 @@ exception with its full stack trace. Files older than **14 days** are deleted au
 startup.
 
 > **Heads up:** the log records the shell commands the app runs. Those include database and user
-> names — check a log before sharing it publicly. Passphrases and key contents are never written.
+> names — check a log before sharing it publicly. Passphrases, key contents and database passwords
+> are never written (password commands are logged with `'***'`).
 
 ---
 
@@ -257,9 +258,14 @@ every network interface with its addresses.
 ### 🐘 PostgreSQL
 Install the server package, then manage it:
 
-- edit `listen_addresses` and restart the service
-- view, add and remove `pg_hba.conf` rules
-- create and drop databases, create users, change passwords, drop users
+- edit `listen_addresses` and the port — applied with `ALTER SYSTEM` and a restart; if PostgreSQL does
+  not come back within 15 seconds the previous values are restored automatically
+- view, add and remove `pg_hba.conf` rules — the list is what PostgreSQL itself parsed
+  (`pg_hba_file_rules`); a new rule PostgreSQL rejects is rolled back, a bare IP gets its `/32` or
+  `/128`, and the local rule the app itself connects through cannot be removed
+- create and drop databases (with confirmation), create users, change passwords, drop users.
+  Names and passwords may contain any character: SQL is passed to `psql` on stdin, never through the
+  shell. New users get `CREATEDB` (for migrations) but not `CREATEROLE`
 - grant a user access to a database
 - generate a connection string from the current selection and copy it to the clipboard
 
@@ -311,8 +317,11 @@ never takes your sites down. The exact `nginx -t` output is shown on screen.
 - **Logs:** the last 200 lines of any file in `/var/log/nginx`.
 
 ### 🛡 Firewall
-Enable or disable `ufw`, list the active rules, add a rule (port, protocol, allow/deny), and delete
-a rule.
+Enable or disable `ufw`, list the active rules, add a rule (port or range, protocol, allow/deny,
+optional source address), and delete a rule. Deleting works by rule number, so source-limited rules,
+app profiles and commented rules are removed too, together with their IPv6 twin. Every port `sshd`
+listens on — starting with the one the app is connected through — is allowed before the firewall is
+enabled, and rules that let SSH in cannot be deleted from the app.
 
 ### 📋 Server Logs
 For any `lrw-*` unit: `journalctl` for the last hour, the last day, or live. Also lists the file
@@ -433,7 +442,11 @@ and puts the message on screen instead of crashing the app.
   public half is shown for you to paste into your git host.
 - **Host key checking** is not enforced on the initial SSH connection — use it on networks you
   trust.
-- **Logs may contain command text**, including database and user names. Review before sharing.
+- **Logs may contain command text**, including database and user names (never passwords). Review
+  before sharing.
+- **Input reaching the server is validated and quoted** in every module: app and folder names cannot
+  contain `/` or `..`, URLs, branches, ports and addresses are checked, and values are single-quoted
+  for the shell.
 - **Nginx input is whitelisted.** Domains, site names, upstream URLs, paths and e-mail addresses are
   validated before they reach a config file or a shell command, and every value is shell-quoted.
 

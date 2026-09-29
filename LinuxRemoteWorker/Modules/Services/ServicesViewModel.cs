@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Text.RegularExpressions;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LinuxRemoteWorker.Core;
@@ -14,6 +15,11 @@ public partial class ServicesViewModel : BaseViewModel, IModule
     private readonly SshService _ssh;
     private readonly BootstrapService _bootstrap;
     private CancellationTokenSource? _logCts;
+
+    // The app name becomes a directory under /srv/lrw/apps and a systemd unit name, and is chown'ed
+    // and deleted as root - so no slashes, no "..", nothing the shell or systemd would reinterpret.
+    private static readonly Regex AppNamePattern = new(@"^[a-z0-9][a-z0-9_.-]{0,62}$");
+    private static readonly Regex UrlsPattern = new(@"^https?://\S+$");
 
     [ObservableProperty] private bool _isBusyServices;
     [ObservableProperty] private string _outputLog = string.Empty;
@@ -101,7 +107,9 @@ public partial class ServicesViewModel : BaseViewModel, IModule
                 $"ln -sf {root}/dotnet /usr/bin/dotnet && " +
                 $"echo \"[ok] .NET {version} installed into {root}\"";
 
-            await _ssh.RunCommandStreamAsync(script, Append);
+            var r = await _ssh.ExecuteStreamAsync(script, Append);
+            if (!r.Succeeded)
+                throw new InvalidOperationException($"Installing .NET {version} failed (exit {r.ExitCode}) - see the output.");
             Append("\n✓ Done");
             await RefreshAsync();
         });
@@ -159,7 +167,7 @@ public partial class ServicesViewModel : BaseViewModel, IModule
 
     partial void OnSelectedRepoChanged(string? value)
     {
-        _ = LoadCsprojAsync(value);
+        _ = RunSafeAsync(() => LoadCsprojAsync(value));
     }
 
     private async Task LoadCsprojAsync(string? repo)
@@ -168,7 +176,7 @@ public partial class ServicesViewModel : BaseViewModel, IModule
         if (string.IsNullOrWhiteSpace(repo)) return;
 
         var found = await _ssh.RunCommandAsync(
-            $"find {DeployPaths.RepoDir(repo)} -name '*.csproj' 2>/dev/null");
+            $"find {Shell.Quote(DeployPaths.RepoDir(repo))} -name '*.csproj' -not -path '*/obj/*' 2>/dev/null");
         foreach (var f in found.Split('\n').Where(f => !string.IsNullOrWhiteSpace(f)))
             CsprojFiles.Add(f.Trim());
     }
@@ -191,6 +199,16 @@ public partial class ServicesViewModel : BaseViewModel, IModule
             SetStatus("Select a .csproj and enter an app name", isError: true);
             return;
         }
+        if (!AppNamePattern.IsMatch(AppName.Trim()) || AppName.Contains(".."))
+        {
+            SetStatus("App name: lower-case letters, digits, '.', '-' and '_' (for example shop-api).", isError: true);
+            return;
+        }
+        if (!UrlsPattern.IsMatch(AspNetUrls.Trim()))
+        {
+            SetStatus("ASPNETCORE_URLS must look like http://0.0.0.0:5000 (no spaces).", isError: true);
+            return;
+        }
 
         IsBusyServices = true;
         OutputLog = string.Empty;
@@ -203,12 +221,14 @@ public partial class ServicesViewModel : BaseViewModel, IModule
             var dotnetPath = (await _ssh.RunCommandAsync("which dotnet")).Trim();
 
             if (string.IsNullOrWhiteSpace(dotnetPath))
-                throw new Exception(".NET SDK not found. Install it in the Repositories module first.");
+                throw new Exception(".NET SDK not found. Install it with the .NET SDK panel above first.");
 
             Append($"→ Publishing {SelectedCsproj}");
             Append($"  → {appDir}");
-            await _ssh.RunCommandStreamAsync(
-                $"{dotnetPath} publish '{SelectedCsproj}' -c Release -o {appDir} 2>&1", Append);
+            var published = await _ssh.ExecuteStreamAsync(
+                $"{dotnetPath} publish {Shell.Quote(SelectedCsproj)} -c Release -o {Shell.Quote(appDir)} 2>&1", Append);
+            if (!published.Succeeded)
+                throw new InvalidOperationException("dotnet publish failed - nothing was deployed. See the build output.");
 
             // Resolve entry dll from runtimeconfig
             var rc = (await _ssh.RunCommandAsync(
@@ -224,11 +244,13 @@ public partial class ServicesViewModel : BaseViewModel, IModule
             await WriteUnitAsync(app, unit);
 
             // Remember the source .csproj so Redeploy can rebuild without re-selecting
-            await _ssh.RunCommandAsync($"echo '{SelectedCsproj}' > {appDir}/.lrw-source");
+            await _ssh.RunCommandAsync($"printf '%s\\n' {Shell.Quote(SelectedCsproj)} > {Shell.Quote(appDir + "/.lrw-source")}");
 
-            await _ssh.RunCommandAsync($"chown -R {DeployPaths.ServiceUser}:{DeployPaths.ServiceUser} {appDir}");
+            await _ssh.RunCommandAsync($"chown -R {DeployPaths.ServiceUser}:{DeployPaths.ServiceUser} {Shell.Quote(appDir)}");
             await _ssh.RunCommandAsync("systemctl daemon-reload");
-            await _ssh.RunCommandStreamAsync($"systemctl enable --now {DeployPaths.UnitName(app)} 2>&1", Append);
+            var started = await _ssh.ExecuteStreamAsync($"systemctl enable --now {DeployPaths.UnitName(app)} 2>&1", Append);
+            if (!started.Succeeded)
+                throw new InvalidOperationException($"The service was installed but did not start - check its journal. {started.Text}");
 
             Append("\n✓ Deployed and started");
             await LoadServicesAsync();
@@ -258,9 +280,10 @@ public partial class ServicesViewModel : BaseViewModel, IModule
 
     private async Task WriteUnitAsync(string app, string content)
     {
-        // Write via heredoc; quoted delimiter prevents variable expansion
-        var cmd = $"cat > {DeployPaths.UnitPath(app)} << 'LRWUNITEOF'\n{content}\nLRWUNITEOF";
-        await _ssh.RunCommandAsync(cmd);
+        // Quoted heredoc (no expansion) with LF line endings: a CR from the Windows editor would end up
+        // inside ExecStart and systemd would not find the program
+        var r = await _ssh.ExecuteAsync(Shell.WriteFile(DeployPaths.UnitPath(app), content));
+        if (!r.Succeeded) throw new InvalidOperationException($"Could not write {DeployPaths.UnitPath(app)}: {r.Text}");
     }
 
     [RelayCommand]
@@ -273,20 +296,24 @@ public partial class ServicesViewModel : BaseViewModel, IModule
             void Append(string l) => OutputLog += l + "\n";
 
             var appDir = DeployPaths.AppDir(s.AppName);
-            var csproj = (await _ssh.RunCommandAsync($"cat {appDir}/.lrw-source 2>/dev/null")).Trim();
+            var csproj = (await _ssh.RunCommandAsync($"cat {Shell.Quote(appDir + "/.lrw-source")} 2>/dev/null")).Trim();
             if (string.IsNullOrWhiteSpace(csproj))
                 throw new Exception("No recorded source for this service. Use Build & Deploy once to set it up.");
 
             var dotnetPath = (await _ssh.RunCommandAsync("which dotnet")).Trim();
 
             Append($"→ Publishing {csproj}");
-            await _ssh.RunCommandStreamAsync(
-                $"{dotnetPath} publish '{csproj}' -c Release -o {appDir} 2>&1", Append);
+            var published = await _ssh.ExecuteStreamAsync(
+                $"{dotnetPath} publish {Shell.Quote(csproj)} -c Release -o {Shell.Quote(appDir)} 2>&1", Append);
+            if (!published.Succeeded)
+                throw new InvalidOperationException("dotnet publish failed - the service was NOT restarted. See the build output.");
 
-            await _ssh.RunCommandAsync($"chown -R {DeployPaths.ServiceUser}:{DeployPaths.ServiceUser} {appDir}");
+            await _ssh.RunCommandAsync($"chown -R {DeployPaths.ServiceUser}:{DeployPaths.ServiceUser} {Shell.Quote(appDir)}");
 
             Append($"\n→ Restarting {s.UnitName} (unit untouched)");
-            await _ssh.RunCommandAsync($"systemctl restart {s.UnitName}");
+            var restarted = await _ssh.ExecuteAsync($"systemctl restart {s.UnitName} 2>&1");
+            if (!restarted.Succeeded)
+                throw new InvalidOperationException($"Published, but {s.UnitName} failed to restart - check its journal. {restarted.Text}");
 
             Append("\n✓ Redeployed");
             await LoadServicesAsync();
@@ -309,8 +336,10 @@ public partial class ServicesViewModel : BaseViewModel, IModule
         IsBusyServices = true;
         await RunSafeAsync(async () =>
         {
-            await _ssh.RunCommandAsync($"systemctl {action} {s.UnitName}");
+            var r = await _ssh.ExecuteAsync($"systemctl {action} {s.UnitName} 2>&1");
             await LoadServicesAsync();
+            if (!r.Succeeded)
+                throw new InvalidOperationException($"{s.AppName}: {action} failed - check its journal. {r.Text}");
             SetStatus($"{s.AppName}: {action} done");
         });
         IsBusyServices = false;
@@ -319,6 +348,10 @@ public partial class ServicesViewModel : BaseViewModel, IModule
     [RelayCommand]
     private async Task DeleteServiceAsync(ServiceInfo s)
     {
+        if (!Confirm($"Remove service {s.UnitName}?\n\nIt is stopped and its unit file deleted. " +
+                            $"The published app stays in {DeployPaths.AppDir(s.AppName)}.", "Remove service"))
+            return;
+
         IsBusyServices = true;
         await RunSafeAsync(async () =>
         {
@@ -349,10 +382,12 @@ public partial class ServicesViewModel : BaseViewModel, IModule
         IsBusyServices = true;
         await RunSafeAsync(async () =>
         {
-            await WriteUnitAsync(SelectedService.AppName, UnitContent.TrimEnd());
+            await WriteUnitAsync(SelectedService.AppName, UnitContent);
             await _ssh.RunCommandAsync("systemctl daemon-reload");
-            await _ssh.RunCommandAsync($"systemctl restart {SelectedService.UnitName}");
+            var r = await _ssh.ExecuteAsync($"systemctl restart {SelectedService.UnitName} 2>&1");
             await LoadServicesAsync();
+            if (!r.Succeeded)
+                throw new InvalidOperationException($"Unit saved, but the service failed to restart - check its journal. {r.Text}");
             SetStatus("Unit saved, daemon reloaded, service restarted");
         });
         IsBusyServices = false;

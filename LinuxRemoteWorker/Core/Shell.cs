@@ -22,12 +22,19 @@ public static class Shell
     /// The quoted heredoc disables $variable, `command` and backslash expansion, so nginx
     /// variables like $host survive. Line endings are normalised to LF.
     /// </summary>
-    public static string WriteFile(string path, string content)
+    public static string WriteFile(string path, string content) => Heredoc($"cat > {Quote(path)}", content);
+
+    /// <summary>
+    /// <paramref name="command"/> with <paramref name="content"/> on its stdin, verbatim (quoted heredoc,
+    /// LF line endings). The content never passes through the shell's expansion, so it can safely carry
+    /// SQL, passwords or config text.
+    /// </summary>
+    public static string Heredoc(string command, string content)
     {
         var text = content.Replace("\r\n", "\n").Replace('\r', '\n').TrimEnd();
         if (text.Split('\n').Contains(HeredocDelimiter))
-            throw new ArgumentException($"The text contains a line '{HeredocDelimiter}', which cannot be written safely.");
+            throw new ArgumentException($"The text contains a line '{HeredocDelimiter}', which cannot be passed safely.");
 
-        return $"cat > {Quote(path)} << '{HeredocDelimiter}'\n{text}\n{HeredocDelimiter}";
+        return $"{command} << '{HeredocDelimiter}'\n{text}\n{HeredocDelimiter}";
     }
 }

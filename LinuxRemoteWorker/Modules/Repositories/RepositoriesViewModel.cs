@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.Text.RegularExpressions;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LinuxRemoteWorker.Core;
@@ -13,6 +14,11 @@ public partial class RepositoriesViewModel : BaseViewModel, IModule
 
     private readonly SshService _ssh;
     private readonly BootstrapService _bootstrap;
+
+    // https://host/owner/repo(.git), ssh://…, or scp-style git@host:owner/repo.git
+    private static readonly Regex RepoUrl = new(@"^((https?|ssh|git)://\S+|[\w.-]+@[\w.-]+:[\w./~-]+)$");
+    private static readonly Regex FolderName = new(@"^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$");
+    private static readonly Regex BranchName = new(@"^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$");
 
     // Tooling state
     [ObservableProperty] private bool _gitInstalled;
@@ -70,7 +76,7 @@ public partial class RepositoriesViewModel : BaseViewModel, IModule
             $"ls -1 {DeployPaths.Repos} 2>/dev/null");
         foreach (var name in names.Split('\n').Where(n => !string.IsNullOrWhiteSpace(n)))
         {
-            var dir = DeployPaths.RepoDir(name.Trim());
+            var dir = Shell.Quote(DeployPaths.RepoDir(name.Trim()));
             var remote = await _ssh.RunCommandAsync($"git -C {dir} remote get-url origin 2>/dev/null || echo '-'");
             var branch = await _ssh.RunCommandAsync($"git -C {dir} branch --show-current 2>/dev/null || echo '-'");
             var commit = await _ssh.RunCommandAsync($"git -C {dir} log -1 --format='%h %s' 2>/dev/null || echo '-'");
@@ -87,7 +93,9 @@ public partial class RepositoriesViewModel : BaseViewModel, IModule
         {
             void Append(string l) => OutputLog += l + "\n";
             Append("→ Installing git...");
-            await _ssh.RunCommandStreamAsync("DEBIAN_FRONTEND=noninteractive apt-get update -y && DEBIAN_FRONTEND=noninteractive apt-get install -y git", Append);
+            var r = await _ssh.ExecuteStreamAsync(Shell.AptInstall("git"), Append);
+            if (!r.Succeeded)
+                throw new InvalidOperationException($"Installing git failed (exit {r.ExitCode}) - see the output.");
             Append("\n✓ Done");
             await RefreshAsync();
         });
@@ -128,9 +136,23 @@ public partial class RepositoriesViewModel : BaseViewModel, IModule
     [RelayCommand]
     private async Task CloneAsync()
     {
-        if (string.IsNullOrWhiteSpace(CloneUrl))
+        var url = CloneUrl.Trim();
+        var branch = CloneBranch.Trim();
+        // Derive folder name if not provided: strip .git and path
+        var name = string.IsNullOrWhiteSpace(CloneName)
+            ? Regex.Replace(url.TrimEnd('/').Split('/', ':').Last(), @"\.git$", "")
+            : CloneName.Trim();
+
+        var error = !RepoUrl.IsMatch(url)
+            ? "Enter a repository URL such as https://github.com/owner/repo.git or git@github.com:owner/repo.git"
+            : branch.Length > 0 && (!BranchName.IsMatch(branch) || branch.Contains(".."))
+                ? "That branch name is not valid."
+                : !FolderName.IsMatch(name) || name.Contains("..")
+                    ? "Folder name: letters, digits, '.', '-' and '_' only."
+                    : null;
+        if (error != null)
         {
-            SetStatus("Enter a repository URL", isError: true);
+            SetStatus(error, isError: true);
             return;
         }
 
@@ -140,23 +162,20 @@ public partial class RepositoriesViewModel : BaseViewModel, IModule
         {
             await _bootstrap.EnsureAsync();
 
-            // Derive folder name if not provided: strip .git and path
-            var name = string.IsNullOrWhiteSpace(CloneName)
-                ? CloneUrl.TrimEnd('/').Split('/').Last().Replace(".git", "")
-                : CloneName.Trim();
-
             var dir = DeployPaths.RepoDir(name);
-            var branchPart = string.IsNullOrWhiteSpace(CloneBranch) ? "" : $"--branch {CloneBranch.Trim()}";
+            var branchPart = branch.Length == 0 ? "" : $"--branch {Shell.Quote(branch)} ";
 
             void Append(string l) => OutputLog += l + "\n";
-            Append($"→ Cloning {CloneUrl} → {dir}");
+            Append($"→ Cloning {url} → {dir}");
 
-            // Clone using deploy key
-            await _ssh.RunCommandStreamAsync(
-                $"{DeployPaths.GitSshEnv} git clone {branchPart} {CloneUrl} {dir} 2>&1", Append);
+            // Clone using deploy key; "--" so nothing in the URL can be read as an option
+            var r = await _ssh.ExecuteStreamAsync(
+                $"{DeployPaths.GitSshEnv} git clone {branchPart}-- {Shell.Quote(url)} {Shell.Quote(dir)} 2>&1", Append);
+            if (!r.Succeeded)
+                throw new InvalidOperationException("git clone failed - see the output (is the deploy key added to the repository?).");
 
             // Hand ownership to service user
-            await _ssh.RunCommandAsync($"chown -R {DeployPaths.ServiceUser}:{DeployPaths.ServiceUser} {dir}");
+            await _ssh.RunCommandAsync($"chown -R {DeployPaths.ServiceUser}:{DeployPaths.ServiceUser} {Shell.Quote(dir)}");
 
             Append("\n✓ Done");
             CloneUrl = string.Empty;
@@ -174,10 +193,11 @@ public partial class RepositoriesViewModel : BaseViewModel, IModule
         IsBusyRepo = true;
         await RunSafeAsync(async () =>
         {
-            var dir = DeployPaths.RepoDir(repo.Name);
-            var result = await _ssh.RunCommandAsync($"{DeployPaths.GitSshEnv} git -C {dir} pull 2>&1");
+            var dir = Shell.Quote(DeployPaths.RepoDir(repo.Name));
+            var r = await _ssh.ExecuteAsync($"{DeployPaths.GitSshEnv} git -C {dir} pull 2>&1");
             await LoadReposAsync();
-            SetStatus($"Pull: {result.Trim()}");
+            if (!r.Succeeded) throw new InvalidOperationException($"Pull failed: {r.Text}");
+            SetStatus($"Pull: {r.Text}");
         });
         IsBusyRepo = false;
     }
@@ -185,10 +205,14 @@ public partial class RepositoriesViewModel : BaseViewModel, IModule
     [RelayCommand]
     private async Task DeleteRepoAsync(RepoInfo repo)
     {
+        if (!Confirm($"Delete the clone {DeployPaths.RepoDir(repo.Name)}?\n\nUncommitted changes on the server are lost.",
+                "Delete repository"))
+            return;
+
         IsBusyRepo = true;
         await RunSafeAsync(async () =>
         {
-            await _ssh.RunCommandAsync($"rm -rf {DeployPaths.RepoDir(repo.Name)}");
+            await _ssh.RunCommandAsync($"rm -rf -- {Shell.Quote(DeployPaths.RepoDir(repo.Name))}");
             await LoadReposAsync();
             SetStatus($"Removed {repo.Name}");
         });

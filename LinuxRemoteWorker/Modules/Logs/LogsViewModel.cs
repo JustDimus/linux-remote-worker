@@ -87,7 +87,7 @@ public partial class LogsViewModel : BaseViewModel, IModule
     {
         LogFiles.Clear();
         var files = await _ssh.RunCommandAsync(
-            $"ls -1t {DeployPaths.LogDir(app)} 2>/dev/null");
+            $"ls -1t {Shell.Quote(DeployPaths.LogDir(app))} 2>/dev/null");
         foreach (var f in files.Split('\n').Where(f => !string.IsNullOrWhiteSpace(f)))
             LogFiles.Add(f.Trim());
     }
@@ -148,7 +148,7 @@ public partial class LogsViewModel : BaseViewModel, IModule
         await RunSafeAsync(async () =>
         {
             var path = $"{DeployPaths.LogDir(SelectedService)}/{SelectedLogFile}";
-            Output = await _ssh.RunCommandAsync($"tail -n 1000 '{path}' 2>&1");
+            Output = await _ssh.RunCommandAsync($"tail -n 1000 {Shell.Quote(path)} 2>&1");
             if (string.IsNullOrWhiteSpace(Output)) Output = "(file is empty)";
         });
     }
