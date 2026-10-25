@@ -213,7 +213,7 @@ public sealed class McpServer
             if (p.Choices.Count > 0) schema["enum"] = new JsonArray(p.Choices.Select(c => (JsonNode?)c).ToArray());
             if (!p.Required && !p.IsConfirm && p.DefaultNode is { } d) schema["default"] = d;
             properties[p.Name] = schema;
-            if (p.Required || p.IsConfirm) required.Add(p.Name);
+            if (p.Required || p.IsConfirm) required.Add((JsonNode?)p.Name);
         }
 
         var result = new JsonObject
