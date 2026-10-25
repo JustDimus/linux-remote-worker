@@ -1,0 +1,97 @@
+# Publishes lrw for every supported platform to a GitHub release.
+#
+# Trigger: push a tag v<major>.<minor>.<patch> (git tag v1.0.0 && git push origin v1.0.0), or run the
+# workflow by hand with a tag name (the tag is created on the selected commit if it does not exist).
+#
+# Assets: lrw-<rid>.zip (Windows) / lrw-<rid>.tar.gz (Linux, macOS), each holding one self-contained
+# executable, plus SHA256SUMS.txt. lrw-setup.ps1 (the Claude skill's installer) downloads exactly these.
+
+name: Release lrw
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to release, for example v1.0.0
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    name: lrw-${{ matrix.rid }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { rid: win-x64, os: ubuntu-latest, archive: zip }
+          - { rid: win-arm64, os: ubuntu-latest, archive: zip }
+          - { rid: linux-x64, os: ubuntu-latest, archive: tar.gz }
+          - { rid: linux-arm64, os: ubuntu-latest, archive: tar.gz }
+          # Built on macOS so the SDK ad-hoc signs the executable; Apple Silicon refuses unsigned binaries
+          - { rid: osx-x64, os: macos-latest, archive: tar.gz }
+          - { rid: osx-arm64, os: macos-latest, archive: tar.gz }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Publish
+        shell: bash
+        run: |
+          version="${TAG#v}"
+          dotnet publish LinuxRemoteWorker.Cli/LinuxRemoteWorker.Cli.csproj -c Release -r ${{ matrix.rid }} \
+            --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
+            -p:DebugType=none -p:Version="$version" -o "out/${{ matrix.rid }}"
+
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p dist
+          cd "out/${{ matrix.rid }}"
+          if [ "${{ matrix.archive }}" = zip ]; then
+            zip -q -r -9 "../../dist/lrw-${{ matrix.rid }}.zip" .
+          else
+            tar -czf "../../dist/lrw-${{ matrix.rid }}.tar.gz" .
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lrw-${{ matrix.rid }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: lrw-*
+          merge-multiple: true
+
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum lrw-* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG" dist/* \
+            --repo "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
+            --title "lrw $TAG" \
+            --generate-notes

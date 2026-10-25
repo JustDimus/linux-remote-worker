@@ -1,0 +1,230 @@
+<UserControl x:Class="LinuxRemoteWorker.Modules.Repositories.RepositoriesView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:conv="clr-namespace:LinuxRemoteWorker.Converters"
+             xmlns:b="clr-namespace:LinuxRemoteWorker.Behaviors">
+    <UserControl.Resources>
+        <conv:BoolToVisibilityConverter x:Key="BoolToVisibility"/>
+        <conv:InvertBoolToVisibilityConverter x:Key="InvertBoolToVisibility"/>
+        <conv:InvertBoolConverter x:Key="InvertBool"/>
+        <conv:ErrorColorConverter x:Key="ErrorColorConverter"/>
+        <conv:StringToVisibilityConverter x:Key="StringToVisibility"/>
+        <conv:ZeroCountToVisibilityConverter x:Key="ZeroCountToVisibility"/>
+
+        <Style x:Key="SectionLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#888"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Margin" Value="0 0 0 6"/>
+        </Style>
+        <Style x:Key="Field" TargetType="TextBox">
+            <Setter Property="Background" Value="#1E1E2E"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderBrush" Value="#2A2A3E"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8 6"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Height" Value="34"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="CaretBrush" Value="White"/>
+        </Style>
+        <Style x:Key="PrimaryBtn" TargetType="Button">
+            <Setter Property="Background" Value="#3D5AFE"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="16 8"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Height" Value="34"/>
+        </Style>
+        <Style x:Key="SecondaryBtn" TargetType="Button">
+            <Setter Property="Background" Value="#2A2A3E"/>
+            <Setter Property="Foreground" Value="#AAA"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="12 8"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Height" Value="34"/>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid>
+        <!-- Busy overlay -->
+        <Grid Panel.ZIndex="100" Visibility="{Binding IsBusyRepo, Converter={StaticResource BoolToVisibility}}">
+            <Rectangle Fill="#AA13131F"/>
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                <Canvas Width="48" Height="48" HorizontalAlignment="Center">
+                    <Canvas.RenderTransform>
+                        <RotateTransform x:Name="SpinTransform" Angle="0" CenterX="24" CenterY="24"/>
+                    </Canvas.RenderTransform>
+                    <Canvas.Triggers>
+                        <EventTrigger RoutedEvent="Canvas.Loaded">
+                            <BeginStoryboard>
+                                <Storyboard RepeatBehavior="Forever">
+                                    <DoubleAnimation Storyboard.TargetName="SpinTransform"
+                                                     Storyboard.TargetProperty="Angle"
+                                                     From="0" To="360" Duration="0:0:0.9"/>
+                                </Storyboard>
+                            </BeginStoryboard>
+                        </EventTrigger>
+                    </Canvas.Triggers>
+                    <Ellipse Width="48" Height="48" StrokeThickness="4" Stroke="#2A2A4E"/>
+                    <Path Stroke="#3D5AFE" StrokeThickness="4" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                          Data="M 24,4 A 20,20 0 0 1 44,24"/>
+                </Canvas>
+                <TextBlock Text="{Binding StatusMessage}" Foreground="#AAA" FontSize="13"
+                           HorizontalAlignment="Center" Margin="0 16 0 0"/>
+            </StackPanel>
+        </Grid>
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="24">
+
+                <!-- Header -->
+                <DockPanel Margin="0 0 0 24">
+                    <TextBlock Text="Repositories" Foreground="White" FontSize="22" FontWeight="SemiBold"/>
+                    <Button Content="↻ Refresh" Command="{Binding RefreshCommand}"
+                            Style="{StaticResource SecondaryBtn}" DockPanel.Dock="Right" VerticalAlignment="Top"/>
+                </DockPanel>
+
+                <!-- Git tooling -->
+                <Border Background="#1E1E2E" CornerRadius="8" Padding="16" Margin="0 0 0 16">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                            <TextBlock Text="Git" Foreground="White" FontSize="14"/>
+                            <TextBlock Text="{Binding GitVersion}" Foreground="#666" FontSize="11"
+                                       Visibility="{Binding GitInstalled, Converter={StaticResource BoolToVisibility}}"/>
+                            <TextBlock Text="Not installed" Foreground="#CF6279" FontSize="11"
+                                       Visibility="{Binding GitInstalled, Converter={StaticResource InvertBoolToVisibility}}"/>
+                        </StackPanel>
+                        <Button Grid.Column="1" Content="Install" Command="{Binding InstallGitCommand}"
+                                Style="{StaticResource PrimaryBtn}"
+                                Visibility="{Binding GitInstalled, Converter={StaticResource InvertBoolToVisibility}}"/>
+                    </Grid>
+                </Border>
+
+                <!-- Deploy key -->
+                <Border Background="#1E1E2E" CornerRadius="8" Padding="16" Margin="0 0 0 16">
+                    <StackPanel>
+                        <TextBlock Text="GIT DEPLOY KEY (SSH)" Style="{StaticResource SectionLabel}"/>
+                        <TextBlock Foreground="#666" FontSize="12" TextWrapping="Wrap" Margin="0 0 0 12"
+                                   Text="Generate an SSH key on the server, then add the public key to your repository's Deploy Keys (GitHub/GitLab) for read access."/>
+
+                        <Button Content="Generate Deploy Key" Command="{Binding GenerateDeployKeyCommand}"
+                                Style="{StaticResource PrimaryBtn}" HorizontalAlignment="Left" Margin="0 0 0 12"
+                                Visibility="{Binding HasDeployKey, Converter={StaticResource InvertBoolToVisibility}}"/>
+
+                        <Grid Visibility="{Binding HasDeployKey, Converter={StaticResource BoolToVisibility}}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Background="#13131F" CornerRadius="4" Padding="10 8">
+                                <TextBlock Text="{Binding DeployPublicKey}" Foreground="#6CCF97"
+                                           FontFamily="Consolas" FontSize="11" TextWrapping="Wrap"/>
+                            </Border>
+                            <Button Grid.Column="1" Content="📋 Copy" Command="{Binding CopyDeployKeyCommand}"
+                                    Style="{StaticResource SecondaryBtn}" Margin="8 0 0 0" VerticalAlignment="Center"/>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- Clone -->
+                <Border Background="#1E1E2E" CornerRadius="8" Padding="16" Margin="0 0 0 16">
+                    <StackPanel>
+                        <TextBlock Text="CLONE REPOSITORY" Style="{StaticResource SectionLabel}"/>
+                        <Grid Margin="0 0 0 8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="150"/>
+                                <ColumnDefinition Width="150"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Margin="0 0 8 0">
+                                <TextBlock Text="Repo URL (git@... or https://)" Foreground="#555" FontSize="10" Margin="0 0 0 3"/>
+                                <TextBox Text="{Binding CloneUrl, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Field}"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Margin="0 0 8 0">
+                                <TextBlock Text="Branch (optional)" Foreground="#555" FontSize="10" Margin="0 0 0 3"/>
+                                <TextBox Text="{Binding CloneBranch, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Field}"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2" Margin="0 0 8 0">
+                                <TextBlock Text="Folder name (optional)" Foreground="#555" FontSize="10" Margin="0 0 0 3"/>
+                                <TextBox Text="{Binding CloneName, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Field}"/>
+                            </StackPanel>
+                            <Button Grid.Column="3" Content="Clone" Command="{Binding CloneCommand}"
+                                    Style="{StaticResource PrimaryBtn}" VerticalAlignment="Bottom"/>
+                        </Grid>
+                        <TextBlock Foreground="#444" FontSize="11"
+                                   Text="{Binding CloneUrl, StringFormat='Will clone into /srv/lrw/repos/'}"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Cloned repos -->
+                <Border Background="#1E1E2E" CornerRadius="8" Padding="16" Margin="0 0 0 16">
+                    <StackPanel>
+                        <TextBlock Text="CLONED REPOSITORIES" Style="{StaticResource SectionLabel}"/>
+                        <ItemsControl ItemsSource="{Binding Repos}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="#13131F" CornerRadius="6" Padding="12 10" Margin="0 3">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Text="{Binding Name}" Foreground="White" FontSize="14" FontWeight="Medium"/>
+                                                    <Border Background="#1E2A5E" CornerRadius="3" Padding="6 1" Margin="8 0 0 0">
+                                                        <TextBlock Text="{Binding Branch}" Foreground="#7B8CDE" FontSize="11"/>
+                                                    </Border>
+                                                </StackPanel>
+                                                <TextBlock Text="{Binding Remote}" Foreground="#555" FontSize="11" Margin="0 2 0 0"/>
+                                                <TextBlock Text="{Binding LastCommit}" Foreground="#6CCF97" FontFamily="Consolas" FontSize="11" Margin="0 2 0 0"/>
+                                            </StackPanel>
+                                            <Button Grid.Column="1" Content="⟳ Pull" Margin="0 0 6 0"
+                                                    Command="{Binding DataContext.PullCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}"
+                                                    Background="#2A2A3E" Foreground="#AAA" BorderThickness="0"
+                                                    Padding="12 6" FontSize="12" Cursor="Hand" VerticalAlignment="Center"/>
+                                            <Button Grid.Column="2" Content="✕"
+                                                    Command="{Binding DataContext.DeleteRepoCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                    CommandParameter="{Binding}"
+                                                    Background="Transparent" Foreground="#555" BorderThickness="0"
+                                                    Padding="6 0" FontSize="14" Cursor="Hand" VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Text="No repositories cloned yet." Foreground="#444" FontSize="12" Margin="0 4 0 0"
+                                   Visibility="{Binding Repos.Count, Converter={StaticResource ZeroCountToVisibility}}"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Output log -->
+                <Border Background="#1E1E2E" CornerRadius="8" Padding="16" Margin="0 0 0 16"
+                        Visibility="{Binding OutputLog, Converter={StaticResource StringToVisibility}}">
+                    <StackPanel>
+                        <TextBlock Text="OUTPUT" Style="{StaticResource SectionLabel}"/>
+                        <ScrollViewer MaxHeight="240" VerticalScrollBarVisibility="Auto" b:AutoScroll.ToEnd="True">
+                            <TextBlock Text="{Binding OutputLog}" Foreground="#6CCF97" FontFamily="Consolas"
+                                       FontSize="12" TextWrapping="Wrap"/>
+                        </ScrollViewer>
+                    </StackPanel>
+                </Border>
+
+                <!-- Status -->
+                <TextBlock Text="{Binding StatusMessage}" FontSize="12"
+                           Visibility="{Binding StatusMessage, Converter={StaticResource StringToVisibility}}"
+                           Foreground="{Binding HasError, Converter={StaticResource ErrorColorConverter}}"/>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

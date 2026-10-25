@@ -1,0 +1,168 @@
+<UserControl x:Class="LinuxRemoteWorker.Modules.Logs.LogsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:conv="clr-namespace:LinuxRemoteWorker.Converters"
+             xmlns:b="clr-namespace:LinuxRemoteWorker.Behaviors">
+    <UserControl.Resources>
+        <conv:BoolToVisibilityConverter x:Key="BoolToVisibility"/>
+        <conv:InvertBoolToVisibilityConverter x:Key="InvertBoolToVisibility"/>
+        <conv:ErrorColorConverter x:Key="ErrorColorConverter"/>
+        <conv:StringToVisibilityConverter x:Key="StringToVisibility"/>
+        <conv:NotNullToVisibilityConverter x:Key="NotNullToVisibility"/>
+
+        <Style x:Key="SectionLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#888"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Margin" Value="0 0 0 6"/>
+        </Style>
+        <Style x:Key="SecondaryBtn" TargetType="Button">
+            <Setter Property="Background" Value="#2A2A3E"/>
+            <Setter Property="Foreground" Value="#AAA"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="12 6"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid>
+        <!-- Busy overlay -->
+        <Grid Panel.ZIndex="100" Visibility="{Binding IsBusyLogs, Converter={StaticResource BoolToVisibility}}">
+            <Rectangle Fill="#AA13131F"/>
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                <Canvas Width="48" Height="48" HorizontalAlignment="Center">
+                    <Canvas.RenderTransform>
+                        <RotateTransform x:Name="SpinTransform" Angle="0" CenterX="24" CenterY="24"/>
+                    </Canvas.RenderTransform>
+                    <Canvas.Triggers>
+                        <EventTrigger RoutedEvent="Canvas.Loaded">
+                            <BeginStoryboard>
+                                <Storyboard RepeatBehavior="Forever">
+                                    <DoubleAnimation Storyboard.TargetName="SpinTransform"
+                                                     Storyboard.TargetProperty="Angle"
+                                                     From="0" To="360" Duration="0:0:0.9"/>
+                                </Storyboard>
+                            </BeginStoryboard>
+                        </EventTrigger>
+                    </Canvas.Triggers>
+                    <Ellipse Width="48" Height="48" StrokeThickness="4" Stroke="#2A2A4E"/>
+                    <Path Stroke="#3D5AFE" StrokeThickness="4" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                          Data="M 24,4 A 20,20 0 0 1 44,24"/>
+                </Canvas>
+                <TextBlock Text="{Binding StatusMessage}" Foreground="#AAA" FontSize="13"
+                           HorizontalAlignment="Center" Margin="0 16 0 0"/>
+            </StackPanel>
+        </Grid>
+
+        <Grid Margin="24">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <!-- Header -->
+            <DockPanel Grid.Row="0" Margin="0 0 0 16">
+                <TextBlock Text="Logs" Foreground="White" FontSize="22" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                <Button Content="↻ Refresh" Command="{Binding RefreshCommand}" DockPanel.Dock="Right"
+                        Background="#3D5AFE" Foreground="White" BorderThickness="0" Padding="14 8"
+                        FontSize="13" Cursor="Hand" VerticalAlignment="Top"/>
+            </DockPanel>
+
+            <!-- Service selector -->
+            <StackPanel Grid.Row="1" Margin="0 0 0 12">
+                <TextBlock Text="SERVICE" Style="{StaticResource SectionLabel}"/>
+                <ComboBox ItemsSource="{Binding Services}" SelectedItem="{Binding SelectedService}"
+                          HorizontalAlignment="Left" MinWidth="280"/>
+            </StackPanel>
+
+            <!-- Log path for config -->
+            <Border Grid.Row="2" Background="#1E1E2E" CornerRadius="8" Padding="16" Margin="0 0 0 12"
+                    Visibility="{Binding SelectedService, Converter={StaticResource NotNullToVisibility}}">
+                <StackPanel>
+                    <TextBlock Text="LOG PATH (for your app config)" Style="{StaticResource SectionLabel}"/>
+                    <Grid Margin="0 0 0 8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Directory:" Foreground="#888" FontSize="12" VerticalAlignment="Center" Margin="0 0 8 0"/>
+                        <Border Grid.Column="1" Background="#13131F" CornerRadius="4" Padding="8 6">
+                            <TextBlock Text="{Binding LogDir}" Foreground="#6CCF97" FontFamily="Consolas" FontSize="12"/>
+                        </Border>
+                        <Button Grid.Column="2" Content="📋" Command="{Binding CopyLogDirCommand}"
+                                Style="{StaticResource SecondaryBtn}" Margin="6 0 0 0"/>
+                    </Grid>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="Suggested file:" Foreground="#888" FontSize="12" VerticalAlignment="Center" Margin="0 0 8 0"/>
+                        <Border Grid.Column="1" Background="#13131F" CornerRadius="4" Padding="8 6">
+                            <TextBlock Text="{Binding SuggestedLogFile}" Foreground="#9CDCFE" FontFamily="Consolas" FontSize="12"/>
+                        </Border>
+                        <Button Grid.Column="2" Content="📋" Command="{Binding CopySuggestedFileCommand}"
+                                Style="{StaticResource SecondaryBtn}" Margin="6 0 0 0"/>
+                    </Grid>
+                    <TextBlock Foreground="#444" FontSize="11" Margin="0 8 0 0" TextWrapping="Wrap"
+                               Text="Point your app's file logger (Serilog/NLog) at this path. The directory is owned by the 'lrw' service user, so the service can write there."/>
+                </StackPanel>
+            </Border>
+
+            <!-- Viewer -->
+            <Border Grid.Row="3" Background="#1E1E2E" CornerRadius="8" Padding="16"
+                    Visibility="{Binding SelectedService, Converter={StaticResource NotNullToVisibility}}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- journalctl controls -->
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0 0 0 8">
+                        <TextBlock Text="journalctl:" Foreground="#888" FontSize="12" VerticalAlignment="Center" Margin="0 0 8 0"/>
+                        <Button Content="● Live" Command="{Binding JournalLiveCommand}"
+                                Style="{StaticResource SecondaryBtn}" Margin="0 0 6 0"
+                                Visibility="{Binding IsStreaming, Converter={StaticResource InvertBoolToVisibility}}"/>
+                        <Button Content="■ Stop" Command="{Binding StopLiveCommand}"
+                                Background="#5A1E1E" Foreground="#CF6279" BorderThickness="0" Padding="12 6"
+                                FontSize="12" Cursor="Hand" Margin="0 0 6 0"
+                                Visibility="{Binding IsStreaming, Converter={StaticResource BoolToVisibility}}"/>
+                        <Button Content="Last hour" Command="{Binding JournalHourCommand}" Style="{StaticResource SecondaryBtn}" Margin="0 0 6 0"/>
+                        <Button Content="Last day" Command="{Binding JournalDayCommand}" Style="{StaticResource SecondaryBtn}"/>
+                    </StackPanel>
+
+                    <!-- file logs controls -->
+                    <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0 0 0 8">
+                        <TextBlock Text="files:" Foreground="#888" FontSize="12" VerticalAlignment="Center" Margin="0 0 8 0"/>
+                        <ComboBox ItemsSource="{Binding LogFiles}" SelectedItem="{Binding SelectedLogFile}"
+                                  MinWidth="200" Margin="0 0 6 0"/>
+                        <Button Content="View" Command="{Binding ViewFileCommand}" Style="{StaticResource SecondaryBtn}" Margin="0 0 6 0"/>
+                        <Button Content="⬇ Download" Command="{Binding DownloadFileCommand}" Style="{StaticResource SecondaryBtn}" Margin="0 0 6 0"/>
+                        <Button Content="↻" Command="{Binding RefreshFilesCommand}" Style="{StaticResource SecondaryBtn}"/>
+                    </StackPanel>
+
+                    <!-- output -->
+                    <Border Grid.Row="2" Background="#0A0A12" CornerRadius="4" Padding="10">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" b:AutoScroll.ToEnd="True">
+                            <TextBlock Text="{Binding Output}" Foreground="#9CDCFE"
+                                       FontFamily="Consolas" FontSize="12" TextWrapping="Wrap"/>
+                        </ScrollViewer>
+                    </Border>
+                </Grid>
+            </Border>
+
+            <!-- Status -->
+            <TextBlock Grid.Row="4" Text="{Binding StatusMessage}" Margin="0 12 0 0" FontSize="12"
+                       Visibility="{Binding StatusMessage, Converter={StaticResource StringToVisibility}}"
+                       Foreground="{Binding HasError, Converter={StaticResource ErrorColorConverter}}"/>
+        </Grid>
+    </Grid>
+</UserControl>

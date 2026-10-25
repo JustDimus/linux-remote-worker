@@ -1,0 +1,584 @@
+<UserControl x:Class="LinuxRemoteWorker.Modules.Nginx.NginxView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:conv="clr-namespace:LinuxRemoteWorker.Converters"
+             xmlns:b="clr-namespace:LinuxRemoteWorker.Behaviors">
+    <UserControl.Resources>
+        <conv:BoolToVisibilityConverter x:Key="BoolToVisibility"/>
+        <conv:InvertBoolToVisibilityConverter x:Key="InvertBoolToVisibility"/>
+        <conv:ErrorColorConverter x:Key="ErrorColorConverter"/>
+        <conv:StringToVisibilityConverter x:Key="StringToVisibility"/>
+        <conv:ZeroCountToVisibilityConverter x:Key="ZeroCountToVisibility"/>
+        <conv:NotNullToVisibilityConverter x:Key="NotNullToVisibility"/>
+
+        <Style x:Key="SectionLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#888"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Margin" Value="0 0 0 6"/>
+        </Style>
+        <Style x:Key="FieldLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#555"/>
+            <Setter Property="FontSize" Value="10"/>
+            <Setter Property="Margin" Value="0 0 0 3"/>
+        </Style>
+        <Style x:Key="Hint" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#444"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+        <Style x:Key="Field" TargetType="TextBox">
+            <Setter Property="Background" Value="#1E1E2E"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderBrush" Value="#2A2A3E"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="8 6"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Height" Value="34"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="CaretBrush" Value="White"/>
+        </Style>
+        <Style x:Key="PrimaryBtn" TargetType="Button">
+            <Setter Property="Background" Value="#3D5AFE"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="16 8"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Height" Value="34"/>
+        </Style>
+        <Style x:Key="SecondaryBtn" TargetType="Button">
+            <Setter Property="Background" Value="#2A2A3E"/>
+            <Setter Property="Foreground" Value="#AAA"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="12 6"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+        <Style x:Key="DangerBtn" TargetType="Button" BasedOn="{StaticResource SecondaryBtn}">
+            <Setter Property="Background" Value="#5A1E1E"/>
+            <Setter Property="Foreground" Value="#CF6279"/>
+        </Style>
+        <Style x:Key="GoodBtn" TargetType="Button" BasedOn="{StaticResource SecondaryBtn}">
+            <Setter Property="Background" Value="#1E3A2E"/>
+            <Setter Property="Foreground" Value="#6CCF97"/>
+        </Style>
+        <Style x:Key="Badge" TargetType="Border">
+            <Setter Property="CornerRadius" Value="3"/>
+            <Setter Property="Padding" Value="5 1"/>
+            <Setter Property="Margin" Value="8 0 0 0"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style x:Key="Notice" TargetType="Border">
+            <Setter Property="Background" Value="#3A2E1E"/>
+            <Setter Property="BorderBrush" Value="#CF9A6C"/>
+            <Setter Property="BorderThickness" Value="1 0 0 0"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Padding" Value="12 10"/>
+            <Setter Property="Margin" Value="0 0 0 12"/>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid>
+        <!-- Busy overlay; long operations also stream their output here -->
+        <Grid Panel.ZIndex="100" Visibility="{Binding IsBusyNginx, Converter={StaticResource BoolToVisibility}}">
+            <Rectangle Fill="#AA13131F"/>
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                <Canvas Width="48" Height="48" HorizontalAlignment="Center">
+                    <Canvas.RenderTransform>
+                        <RotateTransform x:Name="SpinTransform" Angle="0" CenterX="24" CenterY="24"/>
+                    </Canvas.RenderTransform>
+                    <Canvas.Triggers>
+                        <EventTrigger RoutedEvent="Canvas.Loaded">
+                            <BeginStoryboard>
+                                <Storyboard RepeatBehavior="Forever">
+                                    <DoubleAnimation Storyboard.TargetName="SpinTransform"
+                                                     Storyboard.TargetProperty="Angle"
+                                                     From="0" To="360" Duration="0:0:0.9"/>
+                                </Storyboard>
+                            </BeginStoryboard>
+                        </EventTrigger>
+                    </Canvas.Triggers>
+                    <Ellipse Width="48" Height="48" StrokeThickness="4" Stroke="#2A2A4E"/>
+                    <Path Stroke="#3D5AFE" StrokeThickness="4" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                          Data="M 24,4 A 20,20 0 0 1 44,24"/>
+                </Canvas>
+                <TextBlock Text="{Binding StatusMessage}" Foreground="#AAA" FontSize="13"
+                           HorizontalAlignment="Center" Margin="0 16 0 0"/>
+                <Border Width="680" Margin="0 16 0 0" Background="#0A0A12" CornerRadius="6" Padding="12"
+                        Visibility="{Binding IsStreaming, Converter={StaticResource BoolToVisibility}}">
+                    <ScrollViewer Height="260" VerticalScrollBarVisibility="Auto" b:AutoScroll.ToEnd="True">
+                        <TextBlock Text="{Binding OutputLog}" Foreground="#6CCF97" FontFamily="Consolas"
+                                   FontSize="12" TextWrapping="Wrap"/>
+                    </ScrollViewer>
+                </Border>
+            </StackPanel>
+        </Grid>
+
+        <!-- NOT INSTALLED -->
+        <Grid Visibility="{Binding IsInstalled, Converter={StaticResource InvertBoolToVisibility}}">
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Width="420">
+                <TextBlock Text="🌐" FontSize="56" HorizontalAlignment="Center" Margin="0 0 0 16"/>
+                <TextBlock Text="nginx is not installed" Foreground="White" FontSize="20"
+                           FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0 0 0 8"/>
+                <TextBlock Text="Install nginx to put your services behind a domain name, serve static sites and add free HTTPS certificates from Let's Encrypt."
+                           Foreground="#666" FontSize="13" TextAlignment="Center" TextWrapping="Wrap" Margin="0 0 0 32"/>
+                <Button Content="Install nginx" Command="{Binding InstallCommand}"
+                        Style="{StaticResource PrimaryBtn}" Height="Auto" Padding="0 16" FontSize="15"/>
+                <TextBlock Text="{Binding StatusMessage}" FontSize="12" Margin="0 12 0 0" TextWrapping="Wrap"
+                           Visibility="{Binding StatusMessage, Converter={StaticResource StringToVisibility}}"
+                           Foreground="{Binding HasError, Converter={StaticResource ErrorColorConverter}}"/>
+                <Border Margin="0 16 0 0" Background="#1E1E2E" CornerRadius="6" Padding="12"
+                        Visibility="{Binding OutputLog, Converter={StaticResource StringToVisibility}}">
+                    <ScrollViewer MaxHeight="200" VerticalScrollBarVisibility="Auto" b:AutoScroll.ToEnd="True">
+                        <TextBlock Text="{Binding OutputLog}" Foreground="#6CCF97" FontFamily="Consolas"
+                                   FontSize="12" TextWrapping="Wrap"/>
+                    </ScrollViewer>
+                </Border>
+            </StackPanel>
+        </Grid>
+
+        <!-- INSTALLED -->
+        <ScrollViewer Visibility="{Binding IsInstalled, Converter={StaticResource BoolToVisibility}}"
+                      VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="24">
+
+                <!-- Header -->
+                <DockPanel Margin="0 0 0 20">
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top">
+                        <Button Content="✓ Test config" Command="{Binding TestConfigCommand}"
+                                Style="{StaticResource SecondaryBtn}" Margin="0 0 6 0"
+                                ToolTip="Run nginx -t: checks every enabled file without touching the running server"/>
+                        <Button Content="⤾ Reload" Command="{Binding ReloadNginxCommand}"
+                                Style="{StaticResource SecondaryBtn}" Margin="0 0 6 0"
+                                ToolTip="Apply configuration changes without dropping connections (tested first)"
+                                Visibility="{Binding IsRunning, Converter={StaticResource BoolToVisibility}}"/>
+                        <Button Content="⟳ Restart" Command="{Binding RestartNginxCommand}"
+                                Style="{StaticResource SecondaryBtn}" Margin="0 0 6 0"
+                                Visibility="{Binding IsRunning, Converter={StaticResource BoolToVisibility}}"/>
+                        <Button Content="■ Stop" Command="{Binding StopNginxCommand}"
+                                Style="{StaticResource DangerBtn}" Margin="0 0 6 0"
+                                Visibility="{Binding IsRunning, Converter={StaticResource BoolToVisibility}}"/>
+                        <Button Content="▶ Start" Command="{Binding StartNginxCommand}"
+                                Style="{StaticResource GoodBtn}" Margin="0 0 6 0"
+                                Visibility="{Binding IsRunning, Converter={StaticResource InvertBoolToVisibility}}"/>
+                        <Button Content="↻ Refresh" Command="{Binding RefreshCommand}"
+                                Style="{StaticResource PrimaryBtn}" Height="Auto" Padding="12 6" FontSize="12"/>
+                    </StackPanel>
+                    <StackPanel>
+                        <TextBlock Text="Nginx" Foreground="White" FontSize="22" FontWeight="SemiBold"/>
+                        <StackPanel Orientation="Horizontal" Margin="0 4 0 0">
+                            <TextBlock Text="{Binding Version}" Foreground="#666" FontSize="12" Margin="0 0 16 0"/>
+                            <Ellipse Width="8" Height="8" VerticalAlignment="Center" Margin="0 0 6 0">
+                                <Ellipse.Style>
+                                    <Style TargetType="Ellipse">
+                                        <Setter Property="Fill" Value="#CF6279"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsRunning}" Value="True">
+                                                <Setter Property="Fill" Value="#6CCF97"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </Ellipse.Style>
+                            </Ellipse>
+                            <TextBlock Text="{Binding ServiceState}" Foreground="#888" FontSize="12"/>
+                        </StackPanel>
+                    </StackPanel>
+                </DockPanel>
+
+                <!-- Status (at the top: this page is long and results should be visible without scrolling) -->
+                <TextBlock Text="{Binding StatusMessage}" FontSize="12" TextWrapping="Wrap" Margin="0 0 0 12"
+                           Visibility="{Binding StatusMessage, Converter={StaticResource StringToVisibility}}"
+                           Foreground="{Binding HasError, Converter={StaticResource ErrorColorConverter}}"/>
+
+                <!-- Notices -->
+                <Border Style="{StaticResource Notice}"
+                        Visibility="{Binding LayoutWarning, Converter={StaticResource StringToVisibility}}">
+                    <TextBlock Text="{Binding LayoutWarning}" Foreground="#CF9A6C" FontSize="12" TextWrapping="Wrap"/>
+                </Border>
+                <Border Style="{StaticResource Notice}"
+                        Visibility="{Binding FirewallBlocksWeb, Converter={StaticResource BoolToVisibility}}">
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Content="Allow 80 &amp; 443" Command="{Binding AllowWebTrafficCommand}"
+                                Style="{StaticResource SecondaryBtn}" VerticalAlignment="Center" Margin="12 0 0 0"/>
+                        <TextBlock Foreground="#CF9A6C" FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center"
+                                   Text="The ufw firewall is active and does not allow ports 80 and 443. Visitors cannot reach your sites, and Let's Encrypt cannot validate certificates."/>
+                    </DockPanel>
+                </Border>
+
+                <!-- nginx -t / change output -->
+                <Border Background="#0A0A12" CornerRadius="6" Padding="12 10" Margin="0 0 0 16"
+                        Visibility="{Binding NginxOutput, Converter={StaticResource StringToVisibility}}">
+                    <DockPanel>
+                        <Button DockPanel.Dock="Right" Content="✕" Command="{Binding ClearNginxOutputCommand}"
+                                Background="Transparent" Foreground="#555" BorderThickness="0" FontSize="13"
+                                Cursor="Hand" Padding="6 0" VerticalAlignment="Top" ToolTip="Hide"/>
+                        <StackPanel>
+                            <TextBlock Text="NGINX OUTPUT" Foreground="#555" FontSize="10" FontWeight="Bold" Margin="0 0 0 4"/>
+                            <TextBlock Text="{Binding NginxOutput}" FontFamily="Consolas" FontSize="12" TextWrapping="Wrap"
+                                       Foreground="{Binding NginxOutputFailed, Converter={StaticResource ErrorColorConverter}}"/>
+                        </StackPanel>
+                    </DockPanel>
+                </Border>
+
+                <!-- Sites -->
+                <Border Background="#1E1E2E" CornerRadius="8" Padding="16" Margin="0 0 0 16">
+                    <StackPanel>
+                        <DockPanel Margin="0 0 0 6">
+                            <Button DockPanel.Dock="Right" Content="✎ Edit nginx.conf" Command="{Binding EditMainConfigCommand}"
+                                    Style="{StaticResource SecondaryBtn}"
+                                    ToolTip="Global settings: worker processes, gzip, client_max_body_size, server_tokens..."/>
+                            <TextBlock Text="SITES" Style="{StaticResource SectionLabel}" VerticalAlignment="Center" Margin="0"/>
+                        </DockPanel>
+
+                        <ItemsControl ItemsSource="{Binding Sites}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="#13131F" CornerRadius="6" Padding="12 10" Margin="0 3">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <Ellipse Width="8" Height="8" VerticalAlignment="Center" Margin="0 0 8 0">
+                                                        <Ellipse.Style>
+                                                            <Style TargetType="Ellipse">
+                                                                <Setter Property="Fill" Value="#555"/>
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding IsEnabled}" Value="True">
+                                                                        <Setter Property="Fill" Value="#6CCF97"/>
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </Ellipse.Style>
+                                                    </Ellipse>
+                                                    <TextBlock Text="{Binding Name}" Foreground="White" FontSize="14" FontWeight="Medium"/>
+                                                    <Border Style="{StaticResource Badge}" Background="#1E3A2E"
+                                                            Visibility="{Binding IsHttps, Converter={StaticResource BoolToVisibility}}">
+                                                        <TextBlock Text="🔒 https" Foreground="#6CCF97" FontSize="10"/>
+                                                    </Border>
+                                                    <Border Style="{StaticResource Badge}" Background="#2A2A3E"
+                                                            Visibility="{Binding IsEnabled, Converter={StaticResource InvertBoolToVisibility}}">
+                                                        <TextBlock Text="disabled" Foreground="#888" FontSize="10"/>
+                                                    </Border>
+                                                    <Border Style="{StaticResource Badge}" Background="#2A2A4E"
+                                                            Visibility="{Binding CreatedByApp, Converter={StaticResource BoolToVisibility}}">
+                                                        <TextBlock Text="created here" Foreground="#7B8CDE" FontSize="10"/>
+                                                    </Border>
+                                                </StackPanel>
+                                                <TextBlock Text="{Binding ServerNamesText}" Foreground="#9CDCFE" FontFamily="Consolas"
+                                                           FontSize="12" Margin="16 3 0 0" TextWrapping="Wrap"/>
+                                                <TextBlock Text="{Binding DetailsText}" Foreground="#666" FontSize="11" Margin="16 2 0 0"
+                                                           TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                                <Button Content="▶ Enable" Margin="0 0 4 0" Style="{StaticResource GoodBtn}"
+                                                        Visibility="{Binding IsEnabled, Converter={StaticResource InvertBoolToVisibility}}"
+                                                        Command="{Binding DataContext.EnableSiteCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                        CommandParameter="{Binding}"/>
+                                                <Button Content="■ Disable" Margin="0 0 4 0" Style="{StaticResource SecondaryBtn}"
+                                                        Visibility="{Binding IsEnabled, Converter={StaticResource BoolToVisibility}}"
+                                                        Command="{Binding DataContext.DisableSiteCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                        CommandParameter="{Binding}"/>
+                                                <Button Content="🔒 HTTPS" Margin="0 0 4 0" Style="{StaticResource SecondaryBtn}"
+                                                        ToolTip="Get a free Let's Encrypt certificate for this site's domains"
+                                                        Visibility="{Binding IsHttps, Converter={StaticResource InvertBoolToVisibility}}"
+                                                        Command="{Binding DataContext.SecureSiteCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                        CommandParameter="{Binding}"/>
+                                                <Button Content="✎ Edit" Margin="0 0 4 0" Style="{StaticResource SecondaryBtn}"
+                                                        Command="{Binding DataContext.EditSiteCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                        CommandParameter="{Binding}"/>
+                                                <Button Content="✕" Style="{StaticResource SecondaryBtn}" ToolTip="Delete site"
+                                                        Command="{Binding DataContext.DeleteSiteCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                        CommandParameter="{Binding}"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Text="No sites in /etc/nginx/sites-available yet." Foreground="#444" FontSize="12" Margin="0 4 0 0"
+                                   Visibility="{Binding Sites.Count, Converter={StaticResource ZeroCountToVisibility}}"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Config editor -->
+                <Border Background="#1E1E2E" CornerRadius="8" Padding="16" Margin="0 0 0 16"
+                        Visibility="{Binding EditorPath, Converter={StaticResource NotNullToVisibility}}">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource SectionLabel}" Text="{Binding EditorPath, StringFormat='EDIT: {0}'}"/>
+                        <TextBox Text="{Binding EditorContent, UpdateSourceTrigger=PropertyChanged}"
+                                 Background="#13131F" Foreground="#DDD" BorderBrush="#2A2A3E" BorderThickness="1"
+                                 FontFamily="Consolas" FontSize="12" Padding="10" CaretBrush="White"
+                                 AcceptsReturn="True" AcceptsTab="True" TextWrapping="NoWrap"
+                                 MinHeight="220" MaxHeight="520"
+                                 VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"/>
+                        <StackPanel Orientation="Horizontal" Margin="0 8 0 0">
+                            <Button Content="💾 Save, test &amp; reload" Command="{Binding SaveEditorCommand}"
+                                    Style="{StaticResource PrimaryBtn}" Margin="0 0 8 0"/>
+                            <Button Content="↺ Revert" Command="{Binding RevertEditorCommand}"
+                                    Style="{StaticResource SecondaryBtn}" Margin="0 0 8 0"
+                                    ToolTip="Discard your edits and reload the file from the server"/>
+                            <Button Content="Close" Command="{Binding CloseEditorCommand}" Style="{StaticResource SecondaryBtn}"/>
+                        </StackPanel>
+                        <TextBlock Style="{StaticResource Hint}" Margin="0 6 0 0"
+                                   Text="Saving runs nginx -t on the whole configuration. If the test fails, the previous version is restored and nginx keeps running unchanged."/>
+                    </StackPanel>
+                </Border>
+
+                <!-- New site -->
+                <Border Background="#1E1E2E" CornerRadius="8" Padding="16" Margin="0 0 0 16">
+                    <StackPanel>
+                        <TextBlock Text="NEW SITE" Style="{StaticResource SectionLabel}"/>
+                        <Grid Margin="0 0 0 8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="150"/>
+                                <ColumnDefinition Width="2*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Margin="0 0 8 0">
+                                <TextBlock Text="Type" Style="{StaticResource FieldLabel}"/>
+                                <ComboBox ItemsSource="{Binding SiteKinds}" SelectedItem="{Binding NewSiteKind}"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Margin="0 0 8 0">
+                                <TextBlock Text="Domains (server_name) - e.g. example.com www.example.com" Style="{StaticResource FieldLabel}"/>
+                                <TextBox Text="{Binding NewSiteDomains, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Field}"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="Site name (default: first domain)" Style="{StaticResource FieldLabel}"/>
+                                <TextBox Text="{Binding NewSiteName, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Field}"/>
+                            </StackPanel>
+                        </Grid>
+
+                        <!-- Reverse proxy -->
+                        <Grid Margin="0 0 0 8" Visibility="{Binding IsProxyKind, Converter={StaticResource BoolToVisibility}}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="110"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Margin="0 0 8 0">
+                                <TextBlock Text="Upstream (proxy_pass)" Style="{StaticResource FieldLabel}"/>
+                                <TextBox Text="{Binding NewSiteUpstream, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Field}"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Margin="0 0 8 0">
+                                <TextBlock Text="…or pick a deployed .NET service" Style="{StaticResource FieldLabel}"/>
+                                <ComboBox ItemsSource="{Binding ServiceUpstreams}" SelectedItem="{Binding SelectedServiceUpstream}"
+                                          DisplayMemberPath="Display"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="Max upload size" Style="{StaticResource FieldLabel}"/>
+                                <TextBox Text="{Binding NewSiteMaxBody, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Field}"/>
+                            </StackPanel>
+                        </Grid>
+                        <CheckBox Content="WebSocket / SignalR support" IsChecked="{Binding NewSiteWebSockets}"
+                                  Foreground="#AAA" Margin="0 0 0 8"
+                                  Visibility="{Binding IsProxyKind, Converter={StaticResource BoolToVisibility}}"/>
+
+                        <!-- Static files -->
+                        <Grid Margin="0 0 0 8" Visibility="{Binding IsProxyKind, Converter={StaticResource InvertBoolToVisibility}}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Margin="0 0 12 0">
+                                <TextBlock Text="Root folder inside /var/www, /srv or /opt (default: /var/www/&lt;site name&gt;, created if missing)" Style="{StaticResource FieldLabel}"/>
+                                <TextBox Text="{Binding NewSiteRoot, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Field}"/>
+                            </StackPanel>
+                            <CheckBox Grid.Column="1" Content="Single-page app (unknown paths serve index.html)"
+                                      IsChecked="{Binding NewSiteSpa}" Foreground="#AAA" VerticalAlignment="Bottom" Margin="0 0 0 9"/>
+                        </Grid>
+
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Content="+ Create site" Command="{Binding CreateSiteCommand}"
+                                    Style="{StaticResource PrimaryBtn}" VerticalAlignment="Top" Margin="12 0 0 0"/>
+                            <TextBlock Style="{StaticResource Hint}"
+                                       Text="Writes /etc/nginx/sites-available/&lt;site name&gt;, enables it and reloads nginx - only if nginx -t passes. For ASP.NET Core behind the proxy, call app.UseForwardedHeaders() so the app sees the real client IP and the https scheme."/>
+                        </DockPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- SSL certificates -->
+                <Border Background="#1E1E2E" CornerRadius="8" Padding="16" Margin="0 0 0 16">
+                    <StackPanel>
+                        <TextBlock Text="SSL CERTIFICATES (LET'S ENCRYPT)" Style="{StaticResource SectionLabel}"/>
+
+                        <!-- certbot + auto-renewal status -->
+                        <DockPanel Margin="0 0 0 4">
+                            <Button DockPanel.Dock="Right" Content="Install certbot" Command="{Binding InstallCertbotCommand}"
+                                    Style="{StaticResource PrimaryBtn}" Height="Auto" Padding="12 6" FontSize="12"
+                                    Visibility="{Binding CertbotReady, Converter={StaticResource InvertBoolToVisibility}}"/>
+                            <TextBlock Text="{Binding CertbotSummary}" Foreground="#AAA" FontSize="12" VerticalAlignment="Center"/>
+                        </DockPanel>
+                        <DockPanel Margin="0 0 0 12" Visibility="{Binding CertbotInstalled, Converter={StaticResource BoolToVisibility}}">
+                            <Button DockPanel.Dock="Right" Content="Enable auto-renewal" Command="{Binding EnableAutoRenewCommand}"
+                                    Style="{StaticResource SecondaryBtn}"
+                                    Visibility="{Binding AutoRenewActive, Converter={StaticResource InvertBoolToVisibility}}"/>
+                            <TextBlock Text="{Binding AutoRenewText}" FontSize="12" VerticalAlignment="Center" TextWrapping="Wrap">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="#CF6279"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding AutoRenewActive}" Value="True">
+                                                <Setter Property="Foreground" Value="#6CCF97"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </DockPanel>
+
+                        <!-- Certificate list -->
+                        <ItemsControl ItemsSource="{Binding Certificates}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="#13131F" CornerRadius="6" Padding="12 10" Margin="0 3">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Text="{Binding Name}" Foreground="White" FontSize="14" FontWeight="Medium"/>
+                                                    <Border CornerRadius="3" Padding="6 1" Margin="8 0 0 0" VerticalAlignment="Center">
+                                                        <Border.Style>
+                                                            <Style TargetType="Border">
+                                                                <Setter Property="Background" Value="#1E3A2E"/>
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding Health}" Value="soon">
+                                                                        <Setter Property="Background" Value="#3A2E1E"/>
+                                                                    </DataTrigger>
+                                                                    <DataTrigger Binding="{Binding Health}" Value="bad">
+                                                                        <Setter Property="Background" Value="#5A1E1E"/>
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </Border.Style>
+                                                        <TextBlock Text="{Binding DaysLeftText}" FontSize="10">
+                                                            <TextBlock.Style>
+                                                                <Style TargetType="TextBlock">
+                                                                    <Setter Property="Foreground" Value="#6CCF97"/>
+                                                                    <Style.Triggers>
+                                                                        <DataTrigger Binding="{Binding Health}" Value="soon">
+                                                                            <Setter Property="Foreground" Value="#CF9A6C"/>
+                                                                        </DataTrigger>
+                                                                        <DataTrigger Binding="{Binding Health}" Value="bad">
+                                                                            <Setter Property="Foreground" Value="#CF6279"/>
+                                                                        </DataTrigger>
+                                                                    </Style.Triggers>
+                                                                </Style>
+                                                            </TextBlock.Style>
+                                                        </TextBlock>
+                                                    </Border>
+                                                </StackPanel>
+                                                <TextBlock Text="{Binding DomainsText}" Foreground="#9CDCFE" FontFamily="Consolas"
+                                                           FontSize="12" Margin="0 3 0 0" TextWrapping="Wrap"/>
+                                                <TextBlock Foreground="#666" FontSize="11" Margin="0 2 0 0" TextWrapping="Wrap">
+                                                    <Run Text="{Binding ExpiryText, Mode=OneWay}"/>
+                                                    <Run Text="  ·  "/>
+                                                    <Run Text="{Binding UsedByText, Mode=OneWay}"/>
+                                                </TextBlock>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                                <Button Content="⟳ Renew now" Margin="0 0 4 0" Style="{StaticResource SecondaryBtn}"
+                                                        Command="{Binding DataContext.RenewCertificateCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                        CommandParameter="{Binding}"/>
+                                                <Button Content="✕" Style="{StaticResource SecondaryBtn}" ToolTip="Delete certificate"
+                                                        Command="{Binding DataContext.DeleteCertificateCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                        CommandParameter="{Binding}"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Text="No certificates yet. Use 🔒 HTTPS on a site, or the form below." Foreground="#444" FontSize="12"
+                                   Margin="0 4 0 0"
+                                   Visibility="{Binding Certificates.Count, Converter={StaticResource ZeroCountToVisibility}}"/>
+                        <StackPanel Orientation="Horizontal" Margin="0 8 0 16"
+                                    Visibility="{Binding CertbotInstalled, Converter={StaticResource BoolToVisibility}}">
+                            <Button Content="⟳ Renew all that are due" Command="{Binding RenewDueCommand}"
+                                    Style="{StaticResource SecondaryBtn}" Margin="0 0 6 0"
+                                    ToolTip="certbot renew: renews only certificates close to expiry, like the timer does"/>
+                            <Button Content="🧪 Test renewal (dry run)" Command="{Binding TestRenewalCommand}"
+                                    Style="{StaticResource SecondaryBtn}"
+                                    ToolTip="certbot renew --dry-run: proves automatic renewal will work, changes nothing"/>
+                        </StackPanel>
+
+                        <!-- Request form -->
+                        <TextBlock Text="REQUEST A CERTIFICATE" Style="{StaticResource SectionLabel}"/>
+                        <Grid Margin="0 0 0 8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="2*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Margin="0 0 8 0">
+                                <TextBlock Text="Domains" Style="{StaticResource FieldLabel}"/>
+                                <TextBox Text="{Binding CertDomains, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Field}"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Margin="0 0 8 0">
+                                <TextBlock Text="Certificate name (default: first domain)" Style="{StaticResource FieldLabel}"/>
+                                <TextBox Text="{Binding CertName, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Field}"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="2">
+                                <TextBlock Text="E-mail for Let's Encrypt (optional)" Style="{StaticResource FieldLabel}"/>
+                                <TextBox Text="{Binding CertEmail, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Field}"/>
+                            </StackPanel>
+                        </Grid>
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Content="🔒 Get certificate" Command="{Binding IssueCertificateCommand}"
+                                    Style="{StaticResource PrimaryBtn}"/>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <CheckBox Content="Redirect HTTP to HTTPS" IsChecked="{Binding CertRedirect}" Foreground="#AAA" Margin="0 0 16 0"/>
+                                <CheckBox Content="Dry run (staging server, changes nothing)" IsChecked="{Binding CertDryRun}" Foreground="#AAA"/>
+                            </StackPanel>
+                        </DockPanel>
+                        <TextBlock Style="{StaticResource Hint}" Margin="0 8 0 0"
+                                   Text="Each domain must point to this server in DNS, and port 80 must be reachable from the internet (check cloud security groups too). certbot adds the TLS settings to the matching site and renews the certificate automatically. Unsure? Tick Dry run first - failed real requests count against Let's Encrypt rate limits."/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Logs -->
+                <Border Background="#1E1E2E" CornerRadius="8" Padding="16" Margin="0 0 0 16">
+                    <StackPanel>
+                        <TextBlock Text="NGINX LOGS" Style="{StaticResource SectionLabel}"/>
+                        <Grid Margin="0 0 0 8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <ComboBox Grid.Column="0" ItemsSource="{Binding LogFiles}" SelectedItem="{Binding SelectedLogFile}"
+                                      Margin="0 0 8 0"/>
+                            <Button Grid.Column="1" Content="Show last 200 lines" Command="{Binding ShowLogCommand}"
+                                    Style="{StaticResource PrimaryBtn}"/>
+                        </Grid>
+                        <Border Background="#0A0A12" CornerRadius="4" Padding="10"
+                                Visibility="{Binding LogOutput, Converter={StaticResource StringToVisibility}}">
+                            <ScrollViewer MaxHeight="320" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                                          b:AutoScroll.ToEnd="True">
+                                <TextBlock Text="{Binding LogOutput}" Foreground="#9CDCFE" FontFamily="Consolas" FontSize="12"/>
+                            </ScrollViewer>
+                        </Border>
+                    </StackPanel>
+                </Border>
+
+                <!-- Output of the last long-running command (install / certbot) -->
+                <Border Background="#1E1E2E" CornerRadius="8" Padding="16" Margin="0 0 0 16"
+                        Visibility="{Binding OutputLog, Converter={StaticResource StringToVisibility}}">
+                    <StackPanel>
+                        <TextBlock Text="COMMAND OUTPUT" Style="{StaticResource SectionLabel}"/>
+                        <ScrollViewer MaxHeight="280" VerticalScrollBarVisibility="Auto" b:AutoScroll.ToEnd="True">
+                            <TextBlock Text="{Binding OutputLog}" Foreground="#6CCF97" FontFamily="Consolas"
+                                       FontSize="12" TextWrapping="Wrap"/>
+                        </ScrollViewer>
+                    </StackPanel>
+                </Border>
+
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>
