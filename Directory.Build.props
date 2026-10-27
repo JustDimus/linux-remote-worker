@@ -5,7 +5,7 @@
     (Actions → Release → Run workflow) bumps it, commits it and tags the release with it.
   -->
   <PropertyGroup>
-    <Version>0.2.1</Version>
+    <Version>0.2.2</Version>
   </PropertyGroup>
 
 </Project>
