@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Text.Json.Nodes;
 
 namespace LinuxRemoteWorker.Cli.Framework;
@@ -7,6 +8,8 @@ namespace LinuxRemoteWorker.Cli.Framework;
 /// <summary>Turns option text (CLI) or JSON values (MCP) into the CLR values a command method takes.</summary>
 public static class ValueConverter
 {
+    private static readonly Regex WindowsPath = new(@"^[A-Za-z]:[\\/]");
+
     /// <param name="indirect">Resolve @file / @- / env:NAME (CLI only).</param>
     public static object? FromText(ParameterSpec p, string raw, bool indirect)
     {
@@ -26,6 +29,10 @@ public static class ValueConverter
 
             default:
                 var text = indirect ? ResolveIndirect(p, raw) : raw;
+                if (indirect && p.RemotePath && WindowsPath.IsMatch(text))
+                    throw Invalid(p, $"got the Windows path '{text}', but it names a path on the server. Git Bash rewrites " +
+                                     "arguments that start with / into Windows paths: run the command with MSYS_NO_PATHCONV=1 " +
+                                     "in front (or export it once), or call lrw from PowerShell or cmd.");
                 if (p.Choices.Count == 0) return text;
                 return p.Choices.FirstOrDefault(c => c.Equals(text, StringComparison.OrdinalIgnoreCase))
                        ?? throw Invalid(p, $"expects one of {string.Join(", ", p.Choices)}, got '{text}'.");

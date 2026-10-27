@@ -79,7 +79,8 @@ internal static class Program
         var quiet = parsed.Globals.Quiet;
         using var session = new ServerSession(() => TargetResolver.Resolve(parsed.Globals.Connection))
         {
-            PromptPassphrase = Console.IsInputRedirected ? null : PromptPassphrase
+            PromptPassphrase = Console.IsInputRedirected ? null : () => PromptSecret("Key passphrase: "),
+            PromptPassword = Console.IsInputRedirected ? null : server => PromptSecret($"Password for {server}: ")
         };
         var context = new CommandContext(session, line => { if (!quiet) Console.Error.WriteLine(line); }, progressVisible: !quiet);
 
@@ -138,9 +139,9 @@ internal static class Program
     // Agents capture stdout through a pipe and get JSON; a person at a terminal gets tables
     private static OutputFormat DefaultFormat() => Console.IsOutputRedirected ? OutputFormat.Json : OutputFormat.Text;
 
-    private static string? PromptPassphrase()
+    private static string? PromptSecret(string label)
     {
-        Console.Error.Write("Key passphrase: ");
+        Console.Error.Write(label);
         var typed = new StringBuilder();
         while (true)
         {

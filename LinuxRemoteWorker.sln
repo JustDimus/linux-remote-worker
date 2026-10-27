@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LinuxRemoteWorker.Core", "L
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LinuxRemoteWorker.Cli", "LinuxRemoteWorker.Cli\LinuxRemoteWorker.Cli.csproj", "{8D41F6E2-0B7C-4A95-B3E8-5C1A9F2D7E64}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LinuxRemoteWorker.Tests", "LinuxRemoteWorker.Tests\LinuxRemoteWorker.Tests.csproj", "{29B9B935-3882-4C0F-83AD-B20F177F69E2}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -27,6 +29,10 @@ Global
 		{8D41F6E2-0B7C-4A95-B3E8-5C1A9F2D7E64}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{8D41F6E2-0B7C-4A95-B3E8-5C1A9F2D7E64}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{8D41F6E2-0B7C-4A95-B3E8-5C1A9F2D7E64}.Release|Any CPU.Build.0 = Release|Any CPU
+		{29B9B935-3882-4C0F-83AD-B20F177F69E2}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{29B9B935-3882-4C0F-83AD-B20F177F69E2}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{29B9B935-3882-4C0F-83AD-B20F177F69E2}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{29B9B935-3882-4C0F-83AD-B20F177F69E2}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

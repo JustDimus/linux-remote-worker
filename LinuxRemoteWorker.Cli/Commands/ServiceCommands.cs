@@ -15,7 +15,8 @@ public sealed class ServiceCommands : CommandSet
     [Command("list", "Every deployed service with its unit name and whether it is active and enabled.", ReadOnly = true)]
     public async Task<List<ServiceInfo>> List() => await (await ServicesAsync()).ListAsync();
 
-    [Command("show", "One service: state, the .csproj it is published from, its paths, and `systemctl status` with the last journal lines.",
+    [Command("show", "One service: state, the .csproj it is published from, what it runs (deployment: clone, version, commit, environment, URLs; " +
+                     "null when deployed before versions were recorded), its paths, and `systemctl status` with the last journal lines.",
         ReadOnly = true)]
     public async Task<object> Show([Arg("App name", Positional = true)] string app)
     {
@@ -28,6 +29,7 @@ public sealed class ServiceCommands : CommandSet
             info.IsActive,
             info.IsEnabled,
             sourceProject = await services.GetSourceProjectAsync(app),
+            deployment = info.Deployment,
             appDir = DeployPaths.AppDir(app),
             unitPath = DeployPaths.UnitPath(app),
             logDir = DeployPaths.LogDir(app),
@@ -49,21 +51,24 @@ public sealed class ServiceCommands : CommandSet
         return result;
     }
 
-    [Command("deploy", "Publish a project (dotnet publish -c Release) to /srv/lrw/apps/<name>, write its systemd unit with ASPNETCORE_URLS, and enable + start it. " +
-                       "Give --csproj (absolute, or relative to --repo), or only --repo when it holds a single project. Re-deploying replaces the unit.",
+    [Command("deploy", "Publish a project (dotnet publish -c Release) to /srv/lrw/apps/<name>, write its systemd unit with ASPNETCORE_URLS and ASPNETCORE_ENVIRONMENT, and enable + start it. " +
+                       "Give --csproj (absolute, or relative to --repo), or only --repo when it holds a single project. Re-deploying replaces the unit. " +
+                       "A port another service or process already uses is refused. For a second instance of an app, deploy another clone under another name and port.",
         Streams = true, Example = "services deploy --repo shop --csproj src/Shop.Api/Shop.Api.csproj --name shop-api --urls http://127.0.0.1:5000")]
     public async Task<Outcome> Deploy(
         [Arg("Clone name under /srv/lrw/repos")] string? repo = null,
-        [Arg(".csproj path: absolute, or relative to the clone")] string? csproj = null,
+        [Arg(".csproj path: absolute, or relative to the clone", RemotePath = true)] string? csproj = null,
         [Arg("App name: lower-case letters, digits, . - _ (default: from the .csproj name)")] string? name = null,
-        [Arg("ASPNETCORE_URLS; use http://127.0.0.1:<port> when nginx proxies to it")] string urls = "http://0.0.0.0:5000")
+        [Arg("ASPNETCORE_URLS; use http://127.0.0.1:<port> when nginx proxies to it")] string urls = "http://0.0.0.0:5000",
+        [Arg("ASPNETCORE_ENVIRONMENT, e.g. Production or Staging")] string environment = AppServiceManager.DefaultEnvironment,
+        [Arg("Deploy even when another service or process already uses one of the ports")] bool skipPortCheck = false)
     {
         var services = await ServicesAsync();
         var project = await ResolveProjectAsync(services, repo, csproj);
         var app = string.IsNullOrWhiteSpace(name) ? AppServiceManager.SuggestAppName(project) : name.Trim();
 
-        await services.DeployAsync(project, app, urls, Lines);
-        return new Outcome($"Service {app} deployed and started")
+        var deployment = await services.DeployAsync(project, app, urls, Lines, environment, skipPortCheck);
+        return new Outcome($"Service {app} deployed and started: {deployment.Describe()}")
         {
             Data = await services.GetAsync(app),
             Warning = urls.Contains("0.0.0.0") || urls.Contains("[::]") || urls.Contains("*")
@@ -72,15 +77,29 @@ public sealed class ServiceCommands : CommandSet
         };
     }
 
-    [Command("redeploy", "Re-publish a service from the .csproj it was deployed from and restart it (the unit is untouched). --pull runs git pull first.",
-        Streams = true, Example = "services redeploy shop-api --pull")]
+    [Command("redeploy", "Re-publish a service from the clone it was built from and restart it (the unit is untouched). " +
+                         "--update first brings the clone up to date with what it follows; --branch/--tag/--commit/--latest-release first move the clone " +
+                         "to that version - also the way to roll back. Other services built from the same clone change version too on their next redeploy.",
+        Streams = true, Example = "services redeploy shop-prod --tag v1.4.2")]
     public async Task<Outcome> Redeploy(
         [Arg("App name", Positional = true)] string app,
-        [Arg("git pull the clone before publishing")] bool pull = false)
+        [Arg("Update the clone first: newest commit of its branch, or newest release")] bool update = false,
+        [Arg("Same as --update")] bool pull = false,
+        [Arg(GitSourceOptions.BranchHelp)] string? branch = null,
+        [Arg(GitSourceOptions.TagHelp)] string? tag = null,
+        [Arg(GitSourceOptions.CommitHelp)] string? commit = null,
+        [Arg(GitSourceOptions.LatestReleaseHelp)] bool latestRelease = false,
+        [Arg(GitSourceOptions.PatternHelp)] string? pattern = null,
+        [Arg(GitSourceOptions.PrereleasesHelp)] bool prereleases = false,
+        [Arg("Discard files changed in the clone and reset a diverged branch to origin")] bool force = false)
     {
+        var switchTo = GitSourceOptions.From(branch, tag, commit, latestRelease, pattern, prereleases);
+        if (switchTo != null && (update || pull))
+            throw OperationException.Invalid("Use either --update or a version option (--branch, --tag, --commit, --latest-release), not both.");
+
         var services = await ServicesAsync();
-        await services.RedeployAsync(app, pull, Lines);
-        return new Outcome($"{app} redeployed" + (pull ? " from the latest commit" : "")) { Data = await services.GetAsync(app) };
+        var deployment = await services.RedeployAsync(app, update || pull, switchTo, force, Lines);
+        return new Outcome($"{app} redeployed: {deployment.Describe()}") { Data = await services.GetAsync(app) };
     }
 
     [Command("start", "Start a service.", Idempotent = true)]

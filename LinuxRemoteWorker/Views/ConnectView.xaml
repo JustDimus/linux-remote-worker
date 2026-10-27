@@ -9,6 +9,33 @@
         <conv:StringToVisibilityConverter x:Key="StringToVisibilityConverter"/>
         <conv:NotNullToVisibilityConverter x:Key="NotNullToVisibilityConverter"/>
         <conv:NotNullToBoolConverter x:Key="NotNullToBoolConverter"/>
+        <conv:InvertBoolToVisibilityConverter x:Key="InvertBoolToVisibilityConverter"/>
+
+        <!-- One half of the "SSH key | Password" switch -->
+        <Style x:Key="SegmentStyle" TargetType="RadioButton">
+            <Setter Property="Foreground" Value="#888"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="Bg" Background="#1E1E2E" BorderBrush="#2A2A3E" BorderThickness="1" Padding="0 9">
+                            <ContentPresenter HorizontalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="#24243A"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="#2A2A4E"/>
+                                <Setter TargetName="Bg" Property="BorderBrush" Value="#3D5AFE"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
 
         <Style x:Key="FieldLabel" TargetType="TextBlock">
             <Setter Property="Foreground" Value="#888"/>
@@ -103,7 +130,7 @@
         <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto">
             <StackPanel Width="400" VerticalAlignment="Center" HorizontalAlignment="Center" Margin="0 40">
                 <TextBlock Text="SSH Connection" Foreground="White" FontSize="24" FontWeight="Bold" Margin="0 0 0 8"/>
-                <TextBlock Text="Connect to your Linux server using an SSH private key" Foreground="#666" FontSize="13" Margin="0 0 0 32"/>
+                <TextBlock Text="Connect to your Linux server with an SSH key or a password" Foreground="#666" FontSize="13" Margin="0 0 0 32"/>
 
                 <TextBlock Text="PROFILE NAME" Style="{StaticResource FieldLabel}"/>
                 <TextBox Text="{Binding ProfileName, UpdateSourceTrigger=PropertyChanged}"
@@ -117,23 +144,46 @@
                 <TextBox Text="{Binding Username, UpdateSourceTrigger=PropertyChanged}"
                          Style="{StaticResource Field}" Margin="0 0 0 16"/>
 
-                <TextBlock Text="PRIVATE KEY PATH" Style="{StaticResource FieldLabel}"/>
-                <Grid Margin="0 0 0 16">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBox Grid.Column="0" Text="{Binding PrivateKeyPath, UpdateSourceTrigger=PropertyChanged}"
-                             Style="{StaticResource Field}"/>
-                    <Button Grid.Column="1" Content="Browse" Command="{Binding BrowseKeyCommand}"
-                            Margin="8 0 0 0" Padding="12 8" Background="#2A2A3E" Foreground="#AAA"
-                            BorderThickness="0" FontSize="13" Cursor="Hand"/>
-                </Grid>
+                <TextBlock Text="SIGN IN WITH" Style="{StaticResource FieldLabel}"/>
+                <UniformGrid Columns="2" Margin="0 0 0 16">
+                    <RadioButton Content="🔑 SSH key" GroupName="Auth" IsChecked="{Binding UseKey}" Style="{StaticResource SegmentStyle}"/>
+                    <RadioButton Content="🔒 Password" GroupName="Auth" IsChecked="{Binding UsePassword}" Style="{StaticResource SegmentStyle}"/>
+                </UniformGrid>
 
-                <TextBlock Text="PASSPHRASE (optional)" Style="{StaticResource FieldLabel}"/>
-                <PasswordBox x:Name="PassBox" Margin="0 0 0 24"
-                             Background="#1E1E2E" Foreground="White" BorderBrush="#2A2A3E"
-                             BorderThickness="1" Padding="10 8" FontSize="14"/>
+                <!-- Key login -->
+                <StackPanel Visibility="{Binding UsePassword, Converter={StaticResource InvertBoolToVisibilityConverter}}">
+                    <TextBlock Text="PRIVATE KEY PATH" Style="{StaticResource FieldLabel}"/>
+                    <Grid Margin="0 0 0 16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBox Grid.Column="0" Text="{Binding PrivateKeyPath, UpdateSourceTrigger=PropertyChanged}"
+                                 Style="{StaticResource Field}"/>
+                        <Button Grid.Column="1" Content="Browse" Command="{Binding BrowseKeyCommand}"
+                                Margin="8 0 0 0" Padding="12 8" Background="#2A2A3E" Foreground="#AAA"
+                                BorderThickness="0" FontSize="13" Cursor="Hand"/>
+                    </Grid>
+
+                    <TextBlock Text="PASSPHRASE (optional)" Style="{StaticResource FieldLabel}"/>
+                    <PasswordBox x:Name="PassBox" Margin="0 0 0 24"
+                                 Background="#1E1E2E" Foreground="White" BorderBrush="#2A2A3E"
+                                 BorderThickness="1" Padding="10 8" FontSize="14"/>
+                </StackPanel>
+
+                <!-- Password login -->
+                <StackPanel Visibility="{Binding UsePassword, Converter={StaticResource BoolToVisibilityConverter}}" Margin="0 0 0 24">
+                    <TextBlock Text="PASSWORD" Style="{StaticResource FieldLabel}"/>
+                    <PasswordBox x:Name="LoginPassBox"
+                                 Background="#1E1E2E" Foreground="White" BorderBrush="#2A2A3E"
+                                 BorderThickness="1" Padding="10 8" FontSize="14"/>
+                    <TextBlock Text="A saved password is used while this field is empty." Foreground="#666" FontSize="11" Margin="0 4 0 0"
+                               Visibility="{Binding HasSavedPassword, Converter={StaticResource BoolToVisibilityConverter}}"/>
+                    <CheckBox Content="Remember password (encrypted for this Windows user)" IsChecked="{Binding RememberPassword}"
+                              Foreground="#AAA" FontSize="12" Margin="0 10 0 0"/>
+                    <TextBlock Foreground="#555" FontSize="11" Margin="0 8 0 0" TextWrapping="Wrap"
+                               Text="Once connected, Security can create an SSH key for you and switch this server to key-only logins."/>
+                </StackPanel>
 
                 <!-- Buttons -->
                 <Grid Margin="0 0 0 8">
@@ -182,6 +232,11 @@
                                      Background="Transparent" BorderThickness="0" Foreground="#B08A94"
                                      FontFamily="Consolas" FontSize="11" TextWrapping="Wrap"/>
                         </Border>
+
+                        <Button Content="🔑 Trust the new server key" Command="{Binding TrustNewHostKeyCommand}"
+                                Background="#5A2A3E" Foreground="White" BorderThickness="0" HorizontalAlignment="Left"
+                                Padding="12 6" FontSize="12" Cursor="Hand" Margin="0 0 0 8"
+                                Visibility="{Binding CanTrustNewHostKey, Converter={StaticResource BoolToVisibilityConverter}}"/>
 
                         <StackPanel Orientation="Horizontal">
                             <Button Content="📄 Open log file" Command="{Binding OpenLogCommand}"

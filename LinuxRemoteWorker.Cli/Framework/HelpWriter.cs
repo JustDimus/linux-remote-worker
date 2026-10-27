@@ -10,9 +10,12 @@ public static class HelpWriter
         Global options (anywhere on the line):
           --profile <name>          Saved server to use. Default: LRW_PROFILE, then `lrw profiles use`,
                                     then the only saved profile
-          --host <ip> --key <path>  Connect without a profile (LRW_HOST, LRW_KEY); --user <name> (LRW_USER, root)
+          --host <ip> --key <path>  Connect without a profile (LRW_HOST, LRW_KEY); --user <name> (LRW_USER, root);
+                                    without --key the password is used (LRW_PASSWORD or the options below)
           --passphrase-env <VAR>    Variable holding the key passphrase (default LRW_PASSPHRASE)
           --passphrase-file <path>  File holding the key passphrase
+          --password-env <VAR>      Variable holding the login password (default LRW_PASSWORD)
+          --password-file <path>    File holding the login password
           -o, --output json|text    Default: text on a terminal, json when stdout is redirected
           --json                    Same as --output json
           -q, --quiet               Do not stream remote output (installs, builds) to stderr

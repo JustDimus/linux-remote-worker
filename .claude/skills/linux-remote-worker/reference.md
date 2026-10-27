@@ -8,8 +8,9 @@ authoritative source if this file and the tool ever disagree.
 Markers: **RO** read-only · **D** destructive (needs `--yes`) · **L** local, no SSH · **S** streams output, may take minutes · **U** unrestricted (raw shell/SQL/config)
 
 ## Global options
-`--profile <name>` · `--host <ip> --key <path> [--user root]` · `--passphrase-env <VAR>` (default `LRW_PASSPHRASE`) ·
-`--passphrase-file <path>` · `--json` / `-o json|text` · `-q` (no streamed output) · `-h`.
+`--profile <name>` · `--host <ip> --key <path> [--user root]` (without `--key`: password login) · `--passphrase-env <VAR>` (default `LRW_PASSPHRASE`) ·
+`--passphrase-file <path>` · `--password-env <VAR>` (default `LRW_PASSWORD`) · `--password-file <path>` · `--json` / `-o json|text` · `-q` (no streamed output) · `-h`.
+Server host keys are remembered on the first login (`known_hosts.json`); a changed key refuses the connection.
 Value tricks: `@file` / `@-` (stdin) for `--content`, `--sql` and `system exec`; secrets also take `env:VAR`.
 
 ## profiles (L)
@@ -17,17 +18,18 @@ Value tricks: `@file` / `@-` (stdin) for `--content`, `--sql` and `system exec`;
 |---|---|---|
 | `profiles list` | | RO |
 | `profiles show <name>` | | RO |
-| `profiles add <name>` | `--host` `--key` `[--user root]` `[--make-default]` | |
-| `profiles update <name>` | `[--rename]` `[--host]` `[--user]` `[--key]` | |
+| `profiles add <name>` | `--host` and `--key <path>` or `--password <env:VAR\|@file>` (saved encrypted, Windows) or `--password-login` (not saved) `[--user root]` `[--make-default]` | |
+| `profiles update <name>` | `[--rename]` `[--host]` `[--user]` and one of `--key` (switches to key login, drops a saved password), `--password`, `--password-login`, `--forget-password` | |
 | `profiles remove <name>` | | D |
 | `profiles use <name>` | default for commands without --profile | |
 
 ## connection
 | Command | Options | |
 |---|---|---|
-| `connection test` | connect; who/where, OS, latency; failures come with `error.hint` | RO |
-| `connection show` | which server would be used, local file paths - no connection | RO L |
-| `connection_use` (MCP only) | `profile` or `host`+`key` [`user`, `passphraseEnv`] - switch the session's server | |
+| `connection test` | connect; who/where, auth (key/password), hostKey (+ hostKeyNew), OS, latency; failures come with `error.hint` | RO |
+| `connection show` | which server would be used, how it logs in, its remembered host key, local file paths - no connection | RO L |
+| `connection forget-host-key` | `[--host]` - forget the remembered host key (only after the user confirmed a changed key) | D L |
+| `connection_use` (MCP only) | `profile` or `host`+`key` / `host`+`passwordEnv` [`user`, `passphraseEnv`] - switch the session's server | |
 
 ## system
 | Command | Options | |
@@ -65,15 +67,27 @@ Value tricks: `@file` / `@-` (stdin) for `--content`, `--sql` and `system exec`;
 | `pg sql` | `--sql "<sql>"\|@file` `[--db postgres]` | U |
 
 ## repos (git clones in /srv/lrw/repos)
+Each clone follows a **source**: a branch (updates bring its newest commit), the latest release (the
+highest semver tag, e.g. v1.4.2; updates move to newer releases), or a fixed tag or commit (updates leave
+it alone). The source options are the same wherever they appear: `--branch <name>` | `--tag <name>` |
+`--commit <hash>` | `--latest-release [--pattern 'v*'] [--prereleases]` - at most one of them.
+
 | Command | Options | |
 |---|---|---|
 | `repos status` | gitVersion, deployPublicKey, repos | RO |
-| `repos list` | | RO |
+| `repos list` | per clone: source, version (branch, tag or short commit), commit, hasLocalChanges | RO |
+| `repos refs <url\|clone>` | defaultBranch, branches, tags (highest version first), latestRelease, latestPrerelease | RO |
 | `repos install-git` | | S |
 | `repos deploy-key` | `[--generate]` - returns publicKey for the git host's Deploy keys | |
-| `repos clone` | `--url` `[--branch]` `[--name]` | S |
-| `repos pull <name>` | | |
+| `repos clone` | `--url` `[--name]` `[source option]` (default: the default branch) | S |
+| `repos checkout <name>` | source option (required) `[--force]` - move the clone and make it follow that | |
+| `repos update <name>` | `[--force]` - newest commit of its branch (fast-forward) or newest release | |
+| `repos pull <name>` | same as `repos update` | |
 | `repos remove <name>` | | D |
+
+`checkout` and `update` refuse (exit 4) when tracked files were changed on the server or the branch
+diverged from origin (rewritten history); `--force` discards those changes and resets to origin - only
+with the user's agreement. A missing branch, tag or release is exit 5 and the message lists what exists.
 
 ## dotnet (SDKs in /usr/lib/dotnet)
 | Command | Options | |
@@ -86,14 +100,30 @@ Value tricks: `@file` / `@-` (stdin) for `--content`, `--sql` and `system exec`;
 | Command | Options | |
 |---|---|---|
 | `services list` | | RO |
-| `services show <app>` | state, sourceProject, paths, `systemctl status` + last journal lines | RO |
+| `services show <app>` | state, sourceProject, deployment (clone, version, commit, environment, urls), paths, `systemctl status` + last journal lines | RO |
 | `services projects` | `[--repo]` - deployable .csproj files with suggested names | RO |
-| `services deploy` | `--repo` and/or `--csproj` (absolute, or relative to the repo) `[--name]` `[--urls http://0.0.0.0:5000]` | S |
-| `services redeploy <app>` | `[--pull]` - re-publish from the recorded .csproj, restart | S |
+| `services deploy` | `--repo` and/or `--csproj` (absolute, or relative to the repo) `[--name]` `[--urls http://0.0.0.0:5000]` `[--environment Production]` `[--skip-port-check]` - a port another service or process uses is refused (exit 4) with a free one suggested | S |
+| `services redeploy <app>` | `[--update]` or `[source option]`, `[--force]` - optionally move the clone first, then re-publish from the recorded .csproj and restart | S |
 | `services start\|stop\|restart <app>` | | |
 | `services remove <app>` | app files stay in /srv/lrw/apps | D |
 | `services unit show <app>` | | RO |
 | `services unit set <app>` | `--content @unit.service` - reload + restart | U |
+
+## security (SSH logins)
+| Command | Options | |
+|---|---|---|
+| `security status` | user, privileges (root/sudo/none), sessionAuth, hostKey, passwordLoginAllowed, rootLoginAllowed, *DisabledByApp, canDisable… (+ reasons), sshd settings, authorizedKeys | RO |
+| `security create-key` | `[--to <local path>]` `[--overwrite]` - Ed25519 key made on the server, downloaded, authorized, removed from the server, tested | S |
+| `security add-my-key` | `--key <private key path>` `[--passphrase env:VAR]` - this computer's existing key: public half authorized, tested | |
+| `security add-key` | `--public-key "<.pub line>"\|@file` `[--user]` - another device's key; compare data.fingerprint on that device | |
+| `security remove-key` | `--fingerprint SHA256:…` - a lost device; never the key of this session, never the last key while passwords are off | D |
+| `security create-admin` | `--user <name>` `[--to <local path>]` `[--no-copy-keys]` `[--overwrite]` - user with passwordless sudo and its own key, tested (login + sudo), removed again on failure | S |
+| `security disable-password-login` | keys only; refused from a password session; tested and rolled back on failure | D S |
+| `security enable-password-login` | removes the app's drop-in (`/etc/ssh/sshd_config.d/00-lrw-password-login.conf`) | D S |
+| `security disable-root-login` | PermitRootLogin no; only from another user's key login with working sudo; tested and rolled back on failure | D S |
+| `security enable-root-login` | removes the app's drop-in (`/etc/ssh/sshd_config.d/00-lrw-root-login.conf`) | D S |
+
+A login that is not root runs every command through `sudo -n` (passwordless sudo) and transfers files through commands instead of SFTP.
 
 ## logs
 | Command | Options | |

@@ -27,7 +27,7 @@
             <Setter Property="VerticalContentAlignment" Value="Center"/>
             <Setter Property="CaretBrush" Value="White"/>
         </Style>
-        <Style x:Key="PrimaryBtn" TargetType="Button">
+        <Style x:Key="PrimaryBtn" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
             <Setter Property="Background" Value="#3D5AFE"/>
             <Setter Property="Foreground" Value="White"/>
             <Setter Property="BorderThickness" Value="0"/>
@@ -35,7 +35,7 @@
             <Setter Property="FontSize" Value="13"/>
             <Setter Property="Cursor" Value="Hand"/>
         </Style>
-        <Style x:Key="SecondaryBtn" TargetType="Button">
+        <Style x:Key="SecondaryBtn" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
             <Setter Property="Background" Value="#2A2A3E"/>
             <Setter Property="Foreground" Value="#AAA"/>
             <Setter Property="BorderThickness" Value="0"/>

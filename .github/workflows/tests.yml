@@ -1,0 +1,37 @@
+# Unit tests on every push to a branch and every pull request; the release workflow runs the same job first.
+#
+# Linux runs the script tests with /bin/bash; Windows runs them with Git Bash (LRW_BASH) and also covers
+# what only exists there, such as passwords saved with DPAPI. Nothing here connects to a server.
+
+name: Tests
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, bash: '' }
+          - { os: windows-latest, bash: 'C:\Program Files\Git\bin\bash.exe' }
+    runs-on: ${{ matrix.os }}
+    env:
+      LRW_BASH: ${{ matrix.bash }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Test
+        run: dotnet test LinuxRemoteWorker.Tests/LinuxRemoteWorker.Tests.csproj -c Release --logger "console;verbosity=normal"

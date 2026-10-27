@@ -47,6 +47,8 @@ public static class CommandLineParser
         ["--key"] = (g, v) => g.Connection = g.Connection with { Key = v },
         ["--passphrase-env"] = (g, v) => g.Connection = g.Connection with { PassphraseEnv = v },
         ["--passphrase-file"] = (g, v) => g.Connection = g.Connection with { PassphraseFile = v },
+        ["--password-env"] = (g, v) => g.Connection = g.Connection with { PasswordEnv = v },
+        ["--password-file"] = (g, v) => g.Connection = g.Connection with { PasswordFile = v },
         ["--output"] = (g, v) => g.Format = ParseFormat(v),
         ["-o"] = (g, v) => g.Format = ParseFormat(v)
     };

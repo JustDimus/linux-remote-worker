@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LinuxRemoteWorker.Core;
 using LinuxRemoteWorker.Modules.Logs;
+using LinuxRemoteWorker.Modules.Repositories;
 using LinuxRemoteWorker.ViewModels;
 
 namespace LinuxRemoteWorker.Modules.Services;
@@ -17,6 +18,7 @@ public partial class ServicesViewModel : BaseViewModel, IModule
     private readonly BootstrapService _bootstrap;
     private readonly DotnetSdkService _dotnet;
     private readonly AppServiceManager _services;
+    private readonly RepositoryService _repos;
     private readonly ServerLogService _logs;
     private CancellationTokenSource? _logCts;
 
@@ -38,6 +40,7 @@ public partial class ServicesViewModel : BaseViewModel, IModule
     [ObservableProperty] private string? _selectedCsproj;
     [ObservableProperty] private string _appName = string.Empty;
     [ObservableProperty] private string _aspNetUrls = "http://0.0.0.0:5000";
+    [ObservableProperty] private string _deployEnvironment = AppServiceManager.DefaultEnvironment;
 
     // Services
     public ObservableCollection<ServiceInfo> Services { get; } = [];
@@ -48,11 +51,15 @@ public partial class ServicesViewModel : BaseViewModel, IModule
     [ObservableProperty] private string _logOutput = string.Empty;
     [ObservableProperty] private bool _isStreamingLogs;
 
+    // Version of the selected service: what to move its clone to before rebuilding
+    public GitSourcePickerViewModel VersionPicker { get; } = new(allowDefaultBranch: false);
+
     public ServicesViewModel(SshService ssh)
     {
         _bootstrap = new BootstrapService(ssh);
         _dotnet = new DotnetSdkService(ssh);
         _services = new AppServiceManager(ssh);
+        _repos = new RepositoryService(ssh);
         _logs = new ServerLogService(ssh);
     }
 
@@ -124,6 +131,10 @@ public partial class ServicesViewModel : BaseViewModel, IModule
         var services = await _services.ListAsync();
         Services.Clear();
         foreach (var service in services) Services.Add(service);
+
+        // Keep the managed service's version line current after a redeploy
+        if (SelectedService != null)
+            SelectedService = services.FirstOrDefault(s => s.UnitName == SelectedService.UnitName);
     }
 
     partial void OnSelectedRepoChanged(string? value)
@@ -157,7 +168,8 @@ public partial class ServicesViewModel : BaseViewModel, IModule
             return;
         }
 
-        var error = AppServiceManager.ValidateNewAppName(AppName.Trim()) ?? AppServiceManager.ValidateUrls(AspNetUrls.Trim());
+        var error = AppServiceManager.ValidateNewAppName(AppName.Trim()) ?? AppServiceManager.ValidateUrls(AspNetUrls.Trim())
+                    ?? AppServiceManager.ValidateEnvironment(DeployEnvironment.Trim());
         if (error != null)
         {
             SetStatus(error, isError: true);
@@ -171,17 +183,62 @@ public partial class ServicesViewModel : BaseViewModel, IModule
             void Append(string l) => OutputLog += l + "\n";
 
             var app = AppName.Trim();
-            await _services.DeployAsync(csproj, app, AspNetUrls, Append);
+            DeploymentInfo deployment;
+            try
+            {
+                deployment = await _services.DeployAsync(csproj, app, AspNetUrls, Append, DeployEnvironment);
+            }
+            catch (OperationException ex) when (ex.Kind == FailureKind.Refused)
+            {
+                // A port another service is set up for, or that something already listens on
+                if (!Confirm($"{ex.Message}\n\nDeploy anyway? The service may fail to start.", "Port in use"))
+                    throw;
+                deployment = await _services.DeployAsync(csproj, app, AspNetUrls, Append, DeployEnvironment, skipPortCheck: true);
+            }
 
             Append("\n✓ Deployed and started");
             await LoadServicesAsync();
-            SetStatus($"Service {app} deployed");
+            SetStatus($"Service {app} deployed: {deployment.Describe()}");
         });
         IsBusyServices = false;
     }
 
+    /// <summary>Rebuilds what the clone has checked out now.</summary>
     [RelayCommand]
-    private async Task RedeployAsync(ServiceInfo s)
+    private Task RedeployAsync(ServiceInfo s) =>
+        RedeployWithAsync(s, "Redeployed", (force, onLine) => _services.RedeployAsync(s.AppName, false, null, force, onLine));
+
+    /// <summary>Moves the clone to the newest version of what it follows, then rebuilds.</summary>
+    [RelayCommand]
+    private Task UpdateRedeployAsync()
+    {
+        if (SelectedService is not { } s) return Task.CompletedTask;
+        return RedeployWithAsync(s, "Updated and redeployed",
+            (force, onLine) => _services.RedeployAsync(s.AppName, true, null, force, onLine));
+    }
+
+    /// <summary>Checks out the chosen branch, tag, release or commit, then rebuilds - also how a service is rolled back.</summary>
+    [RelayCommand]
+    private Task SwitchVersionAsync()
+    {
+        if (SelectedService is not { } s) return Task.CompletedTask;
+
+        GitSource source;
+        try
+        {
+            source = VersionPicker.Build()!;
+        }
+        catch (OperationException ex)
+        {
+            SetStatus(ex.Message, isError: true);
+            return Task.CompletedTask;
+        }
+
+        return RedeployWithAsync(s, $"Switched to {source.Describe()} and redeployed",
+            (force, onLine) => _services.RedeployAsync(s.AppName, false, source, force, onLine));
+    }
+
+    private async Task RedeployWithAsync(ServiceInfo s, string done, Func<bool, Action<string>, Task<DeploymentInfo>> redeploy)
     {
         IsBusyServices = true;
         OutputLog = string.Empty;
@@ -189,12 +246,30 @@ public partial class ServicesViewModel : BaseViewModel, IModule
         {
             void Append(string l) => OutputLog += l + "\n";
 
-            await _services.RedeployAsync(s.AppName, pull: false, Append);
+            var deployment = await ThenReloadAsync(
+                () => WithForceRetryAsync(force => redeploy(force, Append), $"the clone of {s.AppName}"),
+                LoadServicesAsync);
 
-            Append("\n✓ Redeployed");
-            await LoadServicesAsync();
-            SetStatus($"{s.AppName} redeployed from latest");
+            Append($"\n✓ {done}");
+            SetStatus($"{s.AppName}: {deployment.Describe()}");
         });
+        IsBusyServices = false;
+    }
+
+    [RelayCommand]
+    private async Task LoadVersionRefsAsync()
+    {
+        if (SelectedService is not { } s) return;
+        IsBusyServices = true;
+        await RunSafeAsync(async () =>
+        {
+            var repo = s.Deployment?.Repository
+                       ?? (await _services.GetSourceProjectAsync(s.AppName) is { } csproj ? AppServiceManager.RepoNameOf(csproj) : null)
+                       ?? throw OperationException.NotFound(
+                           $"{s.AppName} was not built from a clone under {DeployPaths.Repos} - it has no versions to pick from.");
+            VersionPicker.Load(await _repos.ListRefsAsync(repo));
+            SetStatus(VersionPicker.RefsSummary);
+        }, "Reading branches and tags...");
         IsBusyServices = false;
     }
 
@@ -243,6 +318,8 @@ public partial class ServicesViewModel : BaseViewModel, IModule
         SelectedService = s;
         LogOutput = string.Empty;
         UnitContent = string.Empty; // never show the previous service's unit under this one's name
+        VersionPicker.Reset();
+        VersionPicker.Preset(GitSource.Parse(s.Deployment?.Source));
         await RunSafeAsync(async () =>
         {
             UnitContent = await _services.ReadUnitAsync(s.AppName);

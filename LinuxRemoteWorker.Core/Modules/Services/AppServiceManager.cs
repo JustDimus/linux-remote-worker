@@ -20,6 +20,11 @@ public sealed class AppServiceManager
     private static readonly Regex ExistingAppName = new(@"^[A-Za-z0-9][A-Za-z0-9_.@-]{0,99}$");
 
     private static readonly Regex UrlsPattern = new(@"^https?://\S+$");
+    private static readonly Regex EnvironmentName = new(@"^[A-Za-z0-9._-]{1,50}$");
+    private static readonly Regex UnitEnvironment = new(@"^Environment=""?ASPNETCORE_ENVIRONMENT=(?<value>[^""\s]+)", RegexOptions.Multiline);
+    private static readonly Regex UnitUrls = new(@"^Environment=""?ASPNETCORE_URLS=(?<value>[^""\s]+)", RegexOptions.Multiline);
+
+    public const string DefaultEnvironment = "Production";
 
     /// <summary>File in the app directory that records which .csproj it was published from.</summary>
     private const string SourceFileName = ".lrw-source";
@@ -43,6 +48,11 @@ public sealed class AppServiceManager
 
     public static string? ValidateUrls(string urls) =>
         UrlsPattern.IsMatch(urls) ? null : "ASPNETCORE_URLS must look like http://0.0.0.0:5000 (no spaces).";
+
+    public static string? ValidateEnvironment(string environment) =>
+        EnvironmentName.IsMatch(environment)
+            ? null
+            : "ASPNETCORE_ENVIRONMENT: letters, digits, '.', '-' and '_' (for example Production or Staging).";
 
     /// <summary>Only projects inside a clone under /srv/lrw/repos are published.</summary>
     public static string? ValidateProject(string csproj) =>
@@ -89,11 +99,44 @@ public sealed class AppServiceManager
         return await ReadInfoAsync(app, DeployPaths.UnitName(app));
     }
 
+    // State, enablement and the deployment record in one round trip
     private async Task<ServiceInfo> ReadInfoAsync(string app, string unitName)
     {
-        var active = await _ssh.RunCommandAsync($"systemctl is-active {unitName} 2>/dev/null || echo inactive");
-        var enabled = await _ssh.RunCommandAsync($"systemctl is-enabled {unitName} 2>/dev/null || echo disabled");
-        return new ServiceInfo(app, unitName, active.Trim() == "active", enabled.Trim() == "enabled");
+        var unit = Shell.Quote(unitName);
+        var record = Shell.Quote($"{DeployPaths.AppDir(app)}/{DeploymentInfo.FileName}");
+        var r = await _ssh.ExecuteAsync(
+            $"a=$(systemctl is-active {unit} 2>/dev/null); e=$(systemctl is-enabled {unit} 2>/dev/null); " +
+            $"printf '%s\\n%s\\n' \"$a\" \"$e\"; cat {record} 2>/dev/null; true");
+        var lines = r.Output.Split('\n');
+        return new ServiceInfo(app, unitName,
+            lines.ElementAtOrDefault(0)?.Trim() == "active",
+            lines.ElementAtOrDefault(1)?.Trim() == "enabled",
+            DeploymentInfo.FromJson(string.Join('\n', lines.Skip(2))));
+    }
+
+    /// <summary>What the service runs, or null when it was deployed before versions were recorded.</summary>
+    public async Task<DeploymentInfo?> GetDeploymentAsync(string app)
+    {
+        OperationException.ThrowIfInvalid(ValidateAppName(app));
+        var record = await _ssh.ExecuteAsync($"cat {Shell.Quote($"{DeployPaths.AppDir(app)}/{DeploymentInfo.FileName}")} 2>/dev/null");
+        return record.Succeeded ? DeploymentInfo.FromJson(record.Output) : null;
+    }
+
+    /// <summary>
+    /// Refuses ports another deployed service is configured for, or that something else listens on, and
+    /// suggests a free one. The app's own ports pass, so redeploying it with the same URLs works.
+    /// </summary>
+    public async Task CheckPortsAsync(string app, string urls)
+    {
+        var units = ServicePorts.FromUnits((await _ssh.ExecuteAsync(
+            $"grep -H 'ASPNETCORE_URLS=' /etc/systemd/system/{DeployPaths.ServicePrefix}*.service 2>/dev/null; true")).Output);
+        var listening = ServicePorts.Listening((await _ssh.ExecuteAsync("ss -Htln 2>/dev/null | awk '{print $4}'; true")).Output);
+
+        var conflicts = ServicePorts.Conflicts(app, ServicePorts.Parse(urls), units, listening);
+        if (conflicts.Count > 0)
+            throw OperationException.Refused(
+                $"Cannot deploy {app} on {urls}: {string.Join("; ", conflicts)}. " +
+                $"Use another port, for example http://127.0.0.1:{ServicePorts.SuggestFree(units, listening)}.");
     }
 
     /// <summary>`systemctl status` of the service: state, main PID, memory and the last journal lines.</summary>
@@ -142,13 +185,19 @@ public sealed class AppServiceManager
 
     /// <summary>
     /// Publishes <paramref name="csproj"/> to /srv/lrw/apps/&lt;app&gt;, writes the systemd unit, and
-    /// enables and starts it. Re-deploying an existing app replaces its unit.
+    /// enables and starts it. Re-deploying an existing app replaces its unit. Several instances of one
+    /// repository are several clones deployed under different app names and ports.
     /// </summary>
-    public async Task DeployAsync(string csproj, string app, string urls, Action<string> onLine)
+    /// <param name="skipPortCheck">Deploy even when another service or process holds one of the ports.</param>
+    public async Task<DeploymentInfo> DeployAsync(string csproj, string app, string urls, Action<string> onLine,
+        string environment = DefaultEnvironment, bool skipPortCheck = false)
     {
         app = app.Trim();
         urls = urls.Trim();
-        OperationException.ThrowIfInvalid(ValidateProject(csproj) ?? ValidateNewAppName(app) ?? ValidateUrls(urls));
+        environment = environment.Trim();
+        OperationException.ThrowIfInvalid(ValidateProject(csproj) ?? ValidateNewAppName(app) ?? ValidateUrls(urls)
+                                          ?? ValidateEnvironment(environment));
+        if (!skipPortCheck) await CheckPortsAsync(app, urls);
 
         var appDir = DeployPaths.AppDir(app);
         var dotnetPath = await FindDotnetAsync();
@@ -170,23 +219,27 @@ public sealed class AppServiceManager
         onLine($"\n→ Entry point: {dll}");
         onLine("→ Writing systemd unit...");
 
-        await WriteUnitAsync(app, BuildUnit(app, appDir, dotnetPath, dll, urls));
+        await WriteUnitAsync(app, BuildUnit(app, appDir, dotnetPath, dll, urls, environment));
 
         // Remember the source .csproj so Redeploy can rebuild without re-selecting
         await _ssh.RunCommandAsync($"printf '%s\\n' {Shell.Quote(csproj)} > {Shell.Quote(appDir + "/" + SourceFileName)}");
+        var deployment = await RecordDeploymentAsync(app, csproj, environment, urls);
 
         await _ssh.RunCommandAsync($"chown -R {DeployPaths.ServiceUser}:{DeployPaths.ServiceUser} {Shell.Quote(appDir)}");
         await _ssh.RunCommandAsync("systemctl daemon-reload");
         var started = await _ssh.ExecuteStreamAsync($"systemctl enable --now {DeployPaths.UnitName(app)} 2>&1", onLine);
         if (!started.Succeeded)
             throw OperationException.Failed($"The service was installed but did not start - check its journal. {started.Text}");
+        return deployment;
     }
 
     /// <summary>
-    /// Re-publishes from the recorded .csproj and restarts; the unit is left untouched.
-    /// With <paramref name="pull"/> the repository is pulled first.
+    /// Re-publishes from the recorded .csproj and restarts; the unit is left untouched. Before that the clone
+    /// can be brought up to date with what it follows (<paramref name="update"/>), or moved to another version
+    /// or source (<paramref name="switchTo"/>) - which is also how a service is rolled back to an older tag.
     /// </summary>
-    public async Task RedeployAsync(string app, bool pull, Action<string> onLine)
+    /// <param name="force">With update or switch: discard changed files in the clone and reset a diverged branch.</param>
+    public async Task<DeploymentInfo> RedeployAsync(string app, bool update, GitSource? switchTo, bool force, Action<string> onLine)
     {
         var csproj = await GetSourceProjectAsync(app)
                      ?? throw OperationException.NotFound("No recorded source for this service. Use Build & Deploy once to set it up.");
@@ -194,14 +247,15 @@ public sealed class AppServiceManager
         var unit = DeployPaths.UnitName(app);
         var dotnetPath = await FindDotnetAsync();
 
-        if (pull)
+        if (update || switchTo != null)
         {
-            var repoDir = RepoDirOf(csproj)
-                          ?? throw OperationException.Failed($"{csproj} is not inside a clone under {DeployPaths.Repos} - cannot pull.");
-            onLine($"→ git pull in {repoDir}");
-            var pulled = await _ssh.ExecuteStreamAsync($"{DeployPaths.GitSshEnv} git -C {Shell.Quote(repoDir)} pull 2>&1", onLine);
-            if (!pulled.Succeeded)
-                throw OperationException.Failed("git pull failed - nothing was redeployed. See the output.", pulled.Text);
+            var repo = RepoNameOf(csproj)
+                       ?? throw OperationException.Failed($"{csproj} is not inside a clone under {DeployPaths.Repos} - its version cannot be changed.");
+            var repos = new RepositoryService(_ssh);
+            var change = switchTo != null
+                ? await repos.SwitchAsync(repo, switchTo, force, onLine)
+                : await repos.UpdateAsync(repo, force, onLine);
+            onLine($"→ {change.Summary}");
             onLine("");
         }
 
@@ -211,21 +265,51 @@ public sealed class AppServiceManager
         if (!published.Succeeded)
             throw OperationException.Failed("dotnet publish failed - the service was NOT restarted. See the build output.", published.Text);
 
+        var previous = await GetDeploymentAsync(app);
+        var unitText = previous == null ? await ReadUnitAsync(app) : string.Empty;
+        var deployment = await RecordDeploymentAsync(app, csproj,
+            previous?.Environment ?? UnitSetting(UnitEnvironment, unitText) ?? DefaultEnvironment,
+            previous?.Urls ?? UnitSetting(UnitUrls, unitText) ?? string.Empty);
+
         await _ssh.RunCommandAsync($"chown -R {DeployPaths.ServiceUser}:{DeployPaths.ServiceUser} {Shell.Quote(appDir)}");
 
         onLine($"\n→ Restarting {unit} (unit untouched)");
         var restarted = await _ssh.ExecuteAsync($"systemctl restart {unit} 2>&1");
         if (!restarted.Succeeded)
             throw OperationException.Failed($"Published, but {unit} failed to restart - check its journal. {restarted.Text}");
+        return deployment;
     }
 
-    // "/srv/lrw/repos/shop/src/Shop.csproj" → "/srv/lrw/repos/shop"
-    private static string? RepoDirOf(string csproj)
+    // Writes .lrw-deploy.json: the project and what its clone has checked out right now
+    private async Task<DeploymentInfo> RecordDeploymentAsync(string app, string csproj, string environment, string urls)
+    {
+        var repoName = RepoNameOf(csproj);
+        RepoInfo? repo = null;
+        if (repoName != null)
+        {
+            try { repo = await new RepositoryService(_ssh).GetAsync(repoName); }
+            catch (OperationException) { /* a project folder that is not a clone has no version to record */ }
+        }
+
+        var deployment = new DeploymentInfo(csproj, repoName, repo?.Source?.Serialize(),
+            repo?.Version is null or "-" ? null : repo.Version, repo?.Commit is { Length: > 0 } commit ? commit : null,
+            environment, urls, DateTime.UtcNow);
+        var path = $"{DeployPaths.AppDir(app)}/{DeploymentInfo.FileName}";
+        var written = await _ssh.ExecuteAsync(Shell.WriteFile(path, deployment.ToJson()));
+        if (!written.Succeeded) throw OperationException.Failed($"Could not write {path}: {written.Text}");
+        return deployment;
+    }
+
+    private static string? UnitSetting(Regex setting, string unitText) =>
+        setting.Match(unitText) is { Success: true } m ? m.Groups["value"].Value : null;
+
+    // "/srv/lrw/repos/shop/src/Shop.csproj" → "shop"
+    public static string? RepoNameOf(string csproj)
     {
         var prefix = DeployPaths.Repos + "/";
         if (!csproj.StartsWith(prefix, StringComparison.Ordinal)) return null;
         var name = csproj[prefix.Length..].Split('/')[0];
-        return RepositoryService.ValidateExistingName(name) == null ? DeployPaths.RepoDir(name) : null;
+        return RepositoryService.ValidateExistingName(name) == null ? name : null;
     }
 
     private async Task<string> FindDotnetAsync()
@@ -236,7 +320,7 @@ public sealed class AppServiceManager
             : throw OperationException.Failed(".NET SDK not found on the server. Install it first (.NET SDK panel, or `lrw dotnet install`).");
     }
 
-    private static string BuildUnit(string app, string appDir, string dotnetPath, string dll, string urls) =>
+    private static string BuildUnit(string app, string appDir, string dotnetPath, string dll, string urls, string environment) =>
         $"""
         [Unit]
         Description={app} (managed by LinuxRemoteWorker)
@@ -248,7 +332,7 @@ public sealed class AppServiceManager
         Restart=always
         RestartSec=5
         User={DeployPaths.ServiceUser}
-        Environment=ASPNETCORE_ENVIRONMENT=Production
+        Environment=ASPNETCORE_ENVIRONMENT={environment}
         Environment=ASPNETCORE_URLS={urls}
 
         [Install]

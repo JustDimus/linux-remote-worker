@@ -29,6 +29,7 @@ agents through a Claude skill and an MCP server. See [Command line & AI agents](
 - [Modules in detail](#modules-in-detail)
 - [Command line & AI agents](#command-line--ai-agents)
 - [Where your data is stored](#where-your-data-is-stored)
+- [Releasing](#releasing)
 - [Building from source](#building-from-source)
 - [Project layout](#project-layout)
 - [Security notes](#security-notes)
@@ -46,10 +47,11 @@ screen per job, and each screen runs the same commands a competent sysadmin woul
 | --- | --- |
 | 🖥 **System Info** | OS, kernel, uptime, CPU, RAM, disk and network interfaces at a glance |
 | 🐘 **PostgreSQL** | Install the server, edit `listen_addresses` and `pg_hba.conf`, manage users and databases, grant access, and generate a ready-to-paste connection string |
-| 📁 **Repositories** | Install git, generate a deploy key, clone private repos, pull updates, remove clones |
-| ⚙ **.NET Services** | Install the .NET SDK, publish a project from a cloned repo, write a systemd unit, then start / stop / restart / redeploy it |
+| 📁 **Repositories** | Install git, generate a deploy key, clone private repos at a branch, tag, commit or the latest release, update or switch versions, remove clones |
+| ⚙ **.NET Services** | Install the .NET SDK, publish a project from a cloned repo, write a systemd unit, then start / stop / restart / redeploy it — at the newest or any chosen version, as one or several instances |
 | 🌐 **Nginx & SSL** | Install nginx, create reverse-proxy or static sites, edit/enable/disable/delete them safely, get Let's Encrypt certificates, watch expiry and renew |
 | 🛡 **Firewall** | Enable or disable `ufw`, list rules, open and close ports |
+| 🔐 **Security** | See how the server lets users log in, create an SSH key from a password login, turn password logins off |
 | 📋 **Server Logs** | `journalctl` for any managed unit (last hour, last day, or live tail) plus the app's own file logs, viewable and downloadable |
 | 🐞 **Application Log** | This app's own diagnostic log — always available, even before you connect |
 
@@ -90,25 +92,43 @@ Everything is idempotent: re-running an action on an already-configured server i
 
 **On your Windows machine**
 
-- Windows 10 or newer
-- [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0) — not needed if you use
-  the self-contained build
-- An SSH **private key** (the app does not do password authentication)
+- Windows 10 or newer (the installer brings its own .NET runtime)
+- An SSH **private key**, or the user's **password** (Security can then make a key for you)
 
 **On the Linux server**
 
 - A `systemd` distribution — Debian/Ubuntu family is the best-tested
 - SSH reachable on port 22
-- A user with `sudo`-free root privileges (typically `root`) — the modules write to `/etc` and
+- `root`, or a user with passwordless `sudo` (Security can create one) — the modules write to `/etc` and
   `/srv`, and manage systemd units
 
-### Run it
+### Install
+
+Download `LinuxRemoteWorker-win-Setup.exe` from the [latest release](https://github.com/JustDimus/linux-remote-worker/releases/latest)
+and run it. The app installs for your Windows user into `%LocalAppData%\LinuxRemoteWorker` (no administrator
+rights), with a Start menu shortcut and an entry under *Settings → Apps* to uninstall it. Windows SmartScreen may
+warn once, because the installer is not code-signed — *More info → Run anyway*.
+
+**It keeps itself up to date.** At every start and every few hours the app looks at the GitHub releases; a newer
+version is downloaded in the background, and the sidebar shows *⟳ Restart to update* — otherwise it is applied on
+the next start. Saved servers and logs (`%AppData%\LinuxRemoteWorker`) are never touched by updates or by
+uninstalling.
+
+- `LinuxRemoteWorker.exe --no-update` switches the checks off for that run (and does not apply a downloaded update).
+- **Updates are signed.** Each release carries the update's SHA256, signed with a private key that only the
+  release workflow holds (an ECDSA P-256 key in the repository's secrets); the app checks that signature with the
+  public key built into it before it downloads anything, and the download is checked against the signed hash.
+  A file swapped in a release by anyone without that key is refused.
+
+### Run from source
 
 ```powershell
 git clone https://github.com/<you>/linux-remote-worker.git
 cd linux-remote-worker
 dotnet run --project LinuxRemoteWorker
 ```
+
+A build that was not installed by the Setup.exe does not update itself (the sidebar says so).
 
 ### Publish a single-file build
 
@@ -125,21 +145,25 @@ installed.
 ## Connecting to a server
 
 1. Open **🔗 Connection**.
-2. Fill in **HOST / IP**, **USERNAME** and **PRIVATE KEY PATH** (use *Browse* to pick the key file).
-3. Add the key's **PASSPHRASE** if it has one.
+2. Fill in **HOST / IP** and **USERNAME**.
+3. Under **SIGN IN WITH** choose
+   - **🔑 SSH key** — pick the **PRIVATE KEY PATH** (*Browse*) and add its **PASSPHRASE** if it has one, or
+   - **🔒 Password** — type the **PASSWORD**; tick *Remember password* to keep it with the profile.
 4. Press **Connect**.
 
-Press **💾 Save** to store the host, user and key path as a named profile. Profiles appear in the
+Press **💾 Save** to store the host, user and login method as a named profile. Profiles appear in the
 **SAVED SERVERS** list on the left of the connection screen; clicking one fills the form.
-The passphrase is never saved.
+Key passphrases are never saved. A remembered password is encrypted with Windows DPAPI for your
+Windows account, so only you, on this computer, can use it.
 
-**Key format:** an OpenSSH private key. A PuTTY `.ppk` file will not work — convert it first with
-PuTTYgen (*Conversions → Export OpenSSH key*). If a modern
-`-----BEGIN OPENSSH PRIVATE KEY-----` key gives trouble, convert it to PEM:
+**Server identity.** The server's SSH host key is remembered on the first successful login
+(`known_hosts.json`). If it is different later, the app refuses to connect and shows both
+fingerprints: expected after a reinstall, otherwise a sign that someone may be intercepting the
+connection. *Trust the new server key* accepts it once you have checked it.
 
-```bash
-ssh-keygen -p -m PEM -f ~/.ssh/id_rsa
-```
+**Key formats:** OpenSSH (`-----BEGIN OPENSSH PRIVATE KEY-----`), PEM (`-----BEGIN RSA PRIVATE KEY-----`,
+`-----BEGIN EC PRIVATE KEY-----`) and PuTTY `.ppk` files, with RSA, ECDSA or Ed25519 keys, encrypted or
+not. DSA keys are not supported.
 
 ---
 
@@ -157,9 +181,12 @@ into plain language:
 | No answer at all | *The server did not answer in time* — firewall, cloud security group, or VPN |
 | IPv6 host, IPv4-only network | *This computer has no IPv6 route to the server* — use the server's IPv4 address |
 | Server refuses the key | *The server rejected the key* — check `~/.ssh/authorized_keys` for that user |
+| Wrong password or user | *The server rejected the password* — root password logins are often forbidden |
+| Server takes keys only | *This server does not accept passwords* — log in with a key |
+| Server's host key changed | *The server's identity changed* — both fingerprints, and *Trust the new server key* once checked |
 | Encrypted key, no passphrase | *The private key is encrypted and needs a passphrase* |
-| Wrong passphrase or odd format | *Wrong key passphrase, or an unsupported key format* — with the `ssh-keygen -m PEM` fix |
-| A `.ppk` or a non-key file | *The private key file could not be read* — with the PuTTYgen conversion steps |
+| Wrong passphrase | *Wrong key passphrase, or an unsupported key format* — with `ssh-keygen -y -f <key>` to test the passphrase |
+| A non-key file or a DSA key | *The private key file could not be read* — with the list of supported formats |
 
 Each message comes with the raw technical detail underneath, plus two buttons:
 
@@ -216,7 +243,7 @@ The app keeps everything it owns under one root, so you can always see — and r
 ```
 /srv/lrw/
 ├── repos/                 git clones
-├── apps/                  published .NET output
+├── apps/                  published .NET output (+ .lrw-deploy.json: what each app runs)
 ├── keys/                  the git deploy key (chmod 700)
 │   ├── git_deploy
 │   └── git_deploy.pub
@@ -278,9 +305,27 @@ Install the server package, then manage it:
 
 ### 📁 Repositories
 Install git if missing, generate an SSH **deploy key** and copy the public half to add on
-GitHub/GitLab, clone private repositories into `/srv/lrw/repos`, pull updates, and delete clones.
-Git operations use the deploy key explicitly, so they never depend on the root user's own SSH
-configuration.
+GitHub/GitLab, clone private repositories into `/srv/lrw/repos`, and delete clones. Git operations
+use the deploy key explicitly, so they never depend on the root user's own SSH configuration.
+
+Every clone **follows** something, chosen when it is cloned and changeable later (**⇄ Switch**):
+
+| Follows | Clone checks out | **⟳ Update** moves it to |
+| --- | --- | --- |
+| a branch (default: the default branch) | its newest commit | the branch's newest commit — fast-forward only |
+| the latest release | the highest version tag (`v1.4.2`, `2.0`, `api/v1.4.0`…), pre-releases only if asked | a newer release, when there is one |
+| a tag | that tag | nowhere — a fixed version |
+| a commit | that commit | nowhere — a fixed version |
+
+**Load branches & tags** reads the repository (without cloning) and offers its branches and tags,
+newest version first. The choice is stored in the clone itself (`git config lrw.track`), so the app,
+`lrw` and the next update all agree; clones made before this follow whatever they have checked out.
+
+Updates are careful: when tracked files were changed on the server, or a branch diverged from origin
+(rewritten history), nothing is touched and the app asks whether to discard that and reset to origin.
+
+**Two copies of one repository** — clone it again under another folder name, at another version
+(say `shop-prod` on the latest release and `shop-staging` on `develop`). Each clone is independent.
 
 ### ⚙ .NET Services
 The deployment pipeline:
@@ -288,10 +333,21 @@ The deployment pipeline:
 1. Install (or remove) the .NET SDK.
 2. Pick a cloned repository, then a `.csproj` inside it.
 3. **Deploy** — publishes the project to `/srv/lrw/apps/<app>` and writes a systemd unit that runs
-   it as the `lrw` user.
-4. Start, stop, restart, or **redeploy** (pull + republish + restart) from the service list.
-5. Edit the generated unit file in place, or read the service's journal — last hour, last day, or a
+   it as the `lrw` user, with `ASPNETCORE_URLS` and `ASPNETCORE_ENVIRONMENT` (default `Production`).
+   A port that another deployed service is set up for, or that something already listens on, is
+   refused with a free one suggested.
+4. Start, stop, restart, or **redeploy** (republish what the clone has checked out + restart) from
+   the service list. The list shows what each service runs: version, commit, clone, environment.
+5. In **⚙ Manage**: **Update & redeploy** moves the clone to the newest version of what it follows,
+   then rebuilds; **Switch & redeploy** checks out any branch, tag, release or commit first — which is
+   also how you roll back to an older tag.
+6. Edit the generated unit file in place, or read the service's journal — last hour, last day, or a
    live tail.
+
+**Several instances of one app:** clone the repository once per instance (see Repositories), then
+deploy each clone under its own app name and port — e.g. `shop-prod` on `http://127.0.0.1:5000` and
+`shop-staging` on `http://127.0.0.1:5001` with environment `Staging`. They are separate services with
+separate versions, logs and units.
 
 ### 🌐 Nginx & SSL
 Install nginx, then run it the way a careful admin would. **Every change is a transaction:** the app
@@ -329,6 +385,40 @@ optional source address), and delete a rule. Deleting works by rule number, so s
 app profiles and commented rules are removed too, together with their IPv6 twin. Every port `sshd`
 listens on — starting with the one the app is connected through — is allowed before the firewall is
 enabled, and rules that let SSH in cannot be deleted from the app.
+
+### 🔐 Security
+How the server lets users in, and the way to key-only logins without root:
+
+- **This connection** — logged in with a key or a password, as root or through sudo, and the server's
+  host key fingerprint.
+- **SSH login settings** — the effective `PasswordAuthentication`, `KbdInteractiveAuthentication`,
+  `PubkeyAuthentication` and `PermitRootLogin` (from `sshd -T`), and the keys that can log in as this user.
+- **Use a key you already have** — reads the public half of your private key (OpenSSH, PEM or PuTTY), adds
+  it to `authorized_keys` and logs in with it; the private key never leaves your PC.
+- **Create an SSH key** — makes an Ed25519 key pair on the server, saves the private key on your PC
+  (readable only by your Windows user), adds the public key to `authorized_keys`, deletes the key files
+  from the server and logs in with the key to prove it works; on any failure nothing is left behind.
+  *Use this key for this connection* then switches the profile to the key and reconnects.
+- **Let another device in** — paste the public key of your Mac or another PC (`cat ~/.ssh/id_ed25519.pub`
+  there, or PuTTYgen's SSH2 block), see its fingerprint before adding, choose the user it logs in as. Its
+  private key never leaves that device. The key list shows every key that can log in; ✕ removes one (a lost
+  device) — except the key this session uses, and never the last key while password login is off.
+- **Disable password login** — only from a session that logged in with a key, so the key is proven
+  before passwords stop working. The app writes `/etc/ssh/sshd_config.d/00-lrw-password-login.conf`, checks
+  it with `sshd -t`, confirms it took effect, reloads sshd (open sessions stay connected) and tests a
+  fresh key login — and undoes everything if any step fails. *Allow password login again* removes the file.
+- **Admin user instead of root** — creates a Linux user with passwordless sudo (`/etc/sudoers.d/lrw-<user>`,
+  checked by `visudo`) and no usable password, makes it an SSH key (saved as
+  `lrw_<server>_<user>_ed25519` in your `.ssh` folder), optionally lets in the keys that log in as you now,
+  then logs in as it and runs `sudo` to prove both work — or removes the user again. *Switch this connection
+  to …* moves the profile to the new user.
+- **Disable root login** — `PermitRootLogin no` in `/etc/ssh/sshd_config.d/00-lrw-root-login.conf`, allowed
+  only from a key login of another user whose sudo works, with the same checks, test login and rollback.
+
+**Working as a user with sudo.** When the login is not root, the app runs every command through
+`sudo -n` (no password prompt — it fails instead) and moves files through commands rather than SFTP, so
+every screen works the same as with root. A user without passwordless sudo can connect, but changes
+fail; the connection screen and Security say so.
 
 ### 📋 Server Logs
 For any `lrw-*` unit: `journalctl` for the last hour, the last day, or live. Also lists the file
@@ -372,12 +462,14 @@ Full documentation: [docs/cli.md](docs/cli.md).
 
 | Path | Contents |
 | --- | --- |
-| `%AppData%\LinuxRemoteWorker\profiles.json` | Saved servers: name, host, username, key **path** (shared by the app and `lrw`) |
+| `%AppData%\LinuxRemoteWorker\profiles.json` | Saved servers: name, host, username, login method, key **path**, a remembered password encrypted with DPAPI (shared by the app and `lrw`) |
+| `%AppData%\LinuxRemoteWorker\known_hosts.json` | Host key fingerprints of the servers you connected to (shared by the app and `lrw`) |
 | `%AppData%\LinuxRemoteWorker\logs\*.log` | Logs of the app (`app-`), the CLI (`cli-`) and the MCP server (`mcp-`), kept for 14 days |
 | `%AppData%\LinuxRemoteWorker\cli.json` | The CLI's default profile (`lrw profiles use`) |
 
 Private keys are never copied into the app's data; only the path to the file is stored. Passphrases
-are held in memory for the lifetime of the connection and are never written to disk.
+are held in memory for the lifetime of the connection and are never written to disk; passwords too,
+unless *Remember password* stores them encrypted for your Windows account.
 
 Both paths are printed at the top of every log file, so they are recoverable even when the UI will
 not start. In the app, the **SAVED SERVERS** panel on the connection screen shows the profiles path
@@ -404,6 +496,26 @@ A damaged file will not stop the app: it is logged as an error and the list simp
 
 ---
 
+## Releasing
+
+*Actions → **Release** → Run workflow* (from `main`), choose **patch**, **minor** or **major**. The workflow takes
+the version from `Directory.Build.props` (the one version of the app, `lrw` and the libraries), runs the unit
+tests on Linux and Windows, builds `lrw` for six platforms and the app installer, signs the update — and only when
+all of that worked commits the new version (`Release vX.Y.Z`), tags it and publishes the release. If anything
+fails, the repository stays as it was. Pushing a tag `vX.Y.Z` by hand still works and releases that exact version.
+
+**Once, before the first release with the app:** create the update signing key on your own computer —
+
+```powershell
+pwsh -File tools/new-update-signing-key.ps1
+```
+
+It writes the public key to `LinuxRemoteWorker/Update/update-signing.pub.pem` (commit it) and puts the private key
+on the clipboard only: add it as the repository secret `UPDATE_SIGNING_KEY` (*Settings → Secrets and variables →
+Actions*) and keep a copy in your password manager. The release refuses to run without both, or when they do not
+belong together. Replacing the key later means apps installed before cannot verify new updates and must be
+reinstalled once from a Setup.exe.
+
 ## Building from source
 
 ```powershell
@@ -413,7 +525,10 @@ dotnet restore
 dotnet build -c Release
 dotnet run --project LinuxRemoteWorker
 dotnet run --project LinuxRemoteWorker.Cli -- help      # the command line
+dotnet test                                             # unit tests (no server needed)
 ```
+
+The unit tests also run on every push (`.github/workflows/tests.yml`, Linux and Windows).
 
 ### Dependencies
 
@@ -421,6 +536,7 @@ dotnet run --project LinuxRemoteWorker.Cli -- help      # the command line
 | --- | --- |
 | [SSH.NET](https://github.com/sshnet/SSH.NET) | SSH and SFTP transport |
 | [CommunityToolkit.Mvvm](https://github.com/CommunityToolkit/dotnet) | Source-generated `ObservableObject` and `RelayCommand` |
+| [Velopack](https://github.com/velopack/velopack) | Installer and automatic updates of the desktop app from GitHub releases |
 
 ---
 
@@ -449,7 +565,7 @@ LinuxRemoteWorker/                 WPF desktop app
 │   ├── BaseViewModel.cs           IsBusy / StatusMessage / HasError + RunSafeAsync
 │   ├── ConnectViewModel.cs        Connection form, profiles, failure reporting
 │   └── MainViewModel.cs           Owns the SSH session and every module
-├── Views/                         ConnectView, InfoCard
+├── Views/                         ConnectView, InfoCard, GitSourcePickerView (branch / tag / release / commit)
 ├── Modules/                       <Name>View.xaml + <Name>ViewModel.cs per screen (AppLogs: the log viewer)
 ├── Converters/                    Value converters used across the XAML
 └── Behaviors/AutoScroll.cs        Keeps log views pinned to the bottom
@@ -458,8 +574,11 @@ LinuxRemoteWorker.Cli/             lrw.exe — command line and MCP server (see 
 ├── Session/                       Server selection, lazy SSH connection, cli.json
 ├── Mcp/McpServer.cs               MCP over stdio, generated from the same catalog
 └── Commands/                      One class per command group, thin adapters over the Core services
+LinuxRemoteWorker.Tests/           xUnit tests: git sources and releases, generated scripts, parsing, ports, CLI options
 .claude/skills/linux-remote-worker/  Claude skill for operating servers with lrw, with its installer
-.github/workflows/release.yml      Publishes lrw builds for every platform on a v* tag
+.github/workflows/release.yml      Release: bump version, test, build lrw + the app installer, sign the update, publish
+.github/workflows/tests.yml        Unit tests on every push and pull request (Linux and Windows)
+tools/                             Release helpers: next-version.sh, sign-update.sh, new-update-signing-key.ps1
 ```
 
 **Architecture in one paragraph.** The server logic lives in `LinuxRemoteWorker.Core` as one service
@@ -487,14 +606,18 @@ and puts the message on screen instead of crashing the app.
 
 ## Security notes
 
-- **Key authentication only.** There is no password login path.
-- **Passphrases stay in RAM.** They are never written to `profiles.json` or the log.
+- **Keys or passwords.** Passwords are kept only when you ask, encrypted with Windows DPAPI for your
+  account; the Security screen moves a server to key-only logins without risking a lock-out.
+- **Passphrases stay in RAM.** They are never written to `profiles.json` or the log; neither are passwords
+  in plain text.
 - **Root access is real access.** This app installs packages, edits `/etc`, and manages systemd
-  units. Point it only at servers you are responsible for.
+  units - as root or through sudo. Point it only at servers you are responsible for.
 - **The deploy key is server-side.** `/srv/lrw/keys/git_deploy` never leaves the server; only its
   public half is shown for you to paste into your git host.
-- **Host key checking** is not enforced on the initial SSH connection — use it on networks you
-  trust.
+- **Updates are signed.** The app installs an update only when its hash is signed with the release key (see
+  *Install*); `--no-update` turns updating off.
+- **Host keys are checked.** A server's key is remembered on the first login (trust on first use, like
+  OpenSSH's `accept-new`); a different key later is refused until you accept it.
 - **Logs may contain command text**, including database and user names (never passwords). Review
   before sharing.
 - **Input reaching the server is validated and quoted** in every module: app and folder names cannot
@@ -528,8 +651,9 @@ machine is running, and that your VPN is connected. `ssh user@host` from a termi
 confirmation.
 
 **"Invalid private key file."**
-The file is not an OpenSSH private key. `.ppk` files need converting with PuTTYgen, and `.pub` files
-are the wrong half of the pair.
+The file is not a private key in a supported format (OpenSSH, PEM or PuTTY `.ppk`; RSA, ECDSA or
+Ed25519). `.pub` files are the wrong half of the pair, and DSA keys are no longer supported — create a
+new Ed25519 key with `ssh-keygen -t ed25519`.
 
 **"A module says 'Not connected'."**
 The SSH session dropped. Go back to **🔗 Connection** and reconnect — the **🐞 Application Log**
@@ -555,7 +679,8 @@ That file is designed to answer this question.
 ## Roadmap
 
 - [ ] Non-standard SSH ports and jump hosts
-- [ ] Host key verification with a known-hosts store
+- [x] Host key verification with a known-hosts store
+- [x] Password logins and a guided switch to key-only logins
 - [x] Nginx / reverse proxy module
 - [x] Let's Encrypt certificate management
 - [x] Command line (`lrw`), Claude skill and MCP server

@@ -80,6 +80,15 @@ In this order:
 An encrypted key's passphrase comes from `LRW_PASSPHRASE`, `--passphrase-env <VAR>` or
 `--passphrase-file <path>`; on an interactive terminal you are asked for it. It is never stored.
 
+**Password logins.** `--host` without `--key` logs in with a password, and so does a profile saved with
+`profiles add … --password env:VAR` (stored encrypted with Windows DPAPI) or `--password-login` (not
+stored). The password comes from `--password-file`, `--password-env <VAR>` or `LRW_PASSWORD`, then from
+the profile; on an interactive terminal you are asked for it.
+
+**Server identity.** Host keys are remembered on the first successful login in
+`%AppData%\LinuxRemoteWorker\known_hosts.json`, shared with the desktop app; a different key later
+refuses the connection (exit 3) until `lrw connection forget-host-key --yes`.
+
 Put global options **before** the group when a command has an option of the same name — for example
 `pg grant --user` is the database role, while `lrw --user ubuntu pg grant …` is the SSH user.
 
@@ -180,21 +189,40 @@ its tool timeout or run those steps with the CLI.
 | Group | What it covers |
 |---|---|
 | `profiles` | saved servers: list, show, add, update, remove, use (default) |
-| `connection` | `test` (with plain-language failure reasons), `show` |
+| `connection` | `test` (with plain-language failure reasons), `show`, `forget-host-key` |
 | `system` | `info`, `exec` |
 | `files` | `list`, `read`, `download`, `upload` |
 | `pg` | `status`, `install`, `restart`, `network`, `hba list/add/remove`, `users list/create/password/drop`, `db list/create/drop`, `grant`, `connstr`, `sql` |
-| `repos` | `status`, `list`, `install-git`, `deploy-key`, `clone`, `pull`, `remove` |
+| `repos` | `status`, `list`, `refs`, `install-git`, `deploy-key`, `clone`, `checkout`, `update` (alias `pull`), `remove` — each clone follows `--branch`, `--tag`, `--commit` or `--latest-release` |
 | `dotnet` | `status`, `install`, `uninstall` |
-| `services` | `list`, `show`, `projects`, `deploy`, `redeploy [--pull]`, `start/stop/restart`, `remove`, `unit show/set` |
+| `services` | `list`, `show`, `projects`, `deploy [--environment] [--skip-port-check]`, `redeploy [--update \| --tag … \| --branch … \| --commit … \| --latest-release] [--force]`, `start/stop/restart`, `remove`, `unit show/set` |
 | `logs` | `apps`, `journal` (any unit, `--follow`), `files`, `read`, `download`, `path` |
 | `nginx` | `status`, `install`, `test`, `reload/restart/start/stop`, `sites list/show/create/enable/disable/delete/edit`, `conf show/set`, `upstreams`, `open-firewall`, `logs list/read` |
 | `certs` | `status`, `install`, `list`, `issue`, `secure-site`, `renew`, `renew-due`, `test-renewal`, `delete`, `auto-renew` |
 | `firewall` | `status`, `enable`, `disable`, `add`, `delete` |
+| `security` | `status`, `add-my-key`, `add-key`, `remove-key`, `create-key`, `create-admin`, `disable-password-login`, `enable-password-login`, `disable-root-login`, `enable-root-login` — key-only logins as an admin user instead of root, without locking yourself out |
 | `applog` | `list`, `read`, `path` — this tool's own logs, no server needed |
 
 Every option of every command: `lrw help <group> <command>`, or the
 [skill's reference](../.claude/skills/linux-remote-worker/reference.md).
+
+### Versions and instances
+
+```
+lrw repos refs git@github.com:acme/shop.git                          # branches, tags, latest release
+lrw repos clone --url git@github.com:acme/shop.git --name shop-prod --latest-release
+lrw repos clone --url git@github.com:acme/shop.git --name shop-staging --branch develop
+lrw services deploy --repo shop-prod --name shop-prod --urls http://127.0.0.1:5000
+lrw services deploy --repo shop-staging --name shop-staging --urls http://127.0.0.1:5001 --environment Staging
+lrw services redeploy shop-staging --update                          # newest develop commit, rebuild, restart
+lrw services redeploy shop-prod --tag v1.4.1                         # roll back production to v1.4.1
+```
+
+"Latest release" is the highest version tag (`v1.4.2`, `1.4`, `api/v1.4.0` with `--pattern 'api/v*'`);
+pre-releases such as `v2.0.0-rc.1` count only with `--prereleases`. A clone remembers what it follows
+(`git config lrw.track`), so `--update` knows whether to move along a branch, to a newer release, or
+nowhere (a tag or commit). Updates refuse to touch files changed on the server or a diverged branch
+(exit 4) unless `--force` is given.
 
 ## How it is built
 
@@ -234,8 +262,8 @@ server logic in a Core service so the desktop app can use it too, and document i
 
 ## Limitations
 
-- SSH on port 22 with key authentication only, like the desktop app; no jump hosts; the server's
-  host key is not verified.
-- The SSH user needs root rights without sudo (typically `root`).
+- SSH on port 22 with a key or a password, like the desktop app; no jump hosts.
+- The SSH user is `root` or has passwordless sudo (commands then run through `sudo -n`); `security create-admin`
+  makes such a user.
 - `logs journal --follow` returns after `--seconds`; there is no long-running "watch" for agents.
 - One SSH connection per CLI invocation (≈1 s overhead); the MCP server keeps its connection open.

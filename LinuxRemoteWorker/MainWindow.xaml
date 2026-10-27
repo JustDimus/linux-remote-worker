@@ -6,6 +6,7 @@
         xmlns:sysinfo="clr-namespace:LinuxRemoteWorker.Modules.SystemInfo"
         xmlns:pg="clr-namespace:LinuxRemoteWorker.Modules.Postgres"
         xmlns:fw="clr-namespace:LinuxRemoteWorker.Modules.Firewall"
+        xmlns:sec="clr-namespace:LinuxRemoteWorker.Modules.Security"
         xmlns:repo="clr-namespace:LinuxRemoteWorker.Modules.Repositories"
         xmlns:svc="clr-namespace:LinuxRemoteWorker.Modules.Services"
         xmlns:nginx="clr-namespace:LinuxRemoteWorker.Modules.Nginx"
@@ -32,6 +33,9 @@
         </DataTemplate>
         <DataTemplate DataType="{x:Type fw:FirewallViewModel}">
             <fw:FirewallView/>
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type sec:SecurityViewModel}">
+            <sec:SecurityView/>
         </DataTemplate>
         <DataTemplate DataType="{x:Type repo:RepositoriesViewModel}">
             <repo:RepositoriesView/>
@@ -159,6 +163,14 @@
                             <TextBlock Text="Firewall"/>
                         </StackPanel>
                     </Button>
+                    <Button Command="{Binding NavigateToCommand}" CommandParameter="{Binding SecurityVM}"
+                            IsEnabled="{Binding IsConnected}"
+                            Style="{StaticResource NavButtonStyle}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="🔐" Margin="0 0 8 0"/>
+                            <TextBlock Text="Security"/>
+                        </StackPanel>
+                    </Button>
                     <Button Command="{Binding NavigateToCommand}" CommandParameter="{Binding LogsVM}"
                             IsEnabled="{Binding IsConnected}"
                             Style="{StaticResource NavButtonStyle}">
@@ -183,6 +195,7 @@
 
                 <!-- Connection indicator at bottom -->
                 <Border DockPanel.Dock="Bottom" Padding="16 12" BorderBrush="#2A2A3E" BorderThickness="0 1 0 0">
+                    <StackPanel>
                     <StackPanel Orientation="Horizontal">
                         <Ellipse Width="8" Height="8" Margin="0 0 8 0" VerticalAlignment="Center">
                             <Ellipse.Style>
@@ -210,6 +223,18 @@
                                 </Style>
                             </TextBlock.Style>
                         </TextBlock>
+                    </StackPanel>
+
+                    <!-- Version and automatic updates -->
+                    <TextBlock FontSize="11" Foreground="#555" Margin="0 8 0 0" TextWrapping="Wrap">
+                        <Run Text="{Binding Updates.VersionText, Mode=OneWay}"/>
+                        <Run Text="·"/>
+                        <Run Text="{Binding Updates.StatusText, Mode=OneWay}"/>
+                    </TextBlock>
+                    <Button Content="⟳ Restart to update" Command="{Binding Updates.RestartToUpdateCommand}"
+                            Visibility="{Binding Updates.RestartAvailable, Converter={StaticResource BoolToVisibilityConverter}}"
+                            Background="#3D5AFE" Foreground="White" BorderThickness="0" Padding="10 6" FontSize="12"
+                            Cursor="Hand" HorizontalAlignment="Left" Margin="0 8 0 0"/>
                     </StackPanel>
                 </Border>
             </DockPanel>

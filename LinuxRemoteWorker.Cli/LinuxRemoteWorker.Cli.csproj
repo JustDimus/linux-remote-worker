@@ -12,9 +12,12 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>LinuxRemoteWorker.Cli</RootNamespace>
     <AssemblyName>lrw</AssemblyName>
-    <Version>1.0.0</Version>
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="LinuxRemoteWorker.Tests" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\LinuxRemoteWorker.Core\LinuxRemoteWorker.Core.csproj" />

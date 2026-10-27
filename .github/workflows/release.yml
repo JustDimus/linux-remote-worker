@@ -1,31 +1,80 @@
-# Publishes lrw for every supported platform to a GitHub release.
+# Releases the desktop app and lrw.
 #
-# Trigger: push a tag v<major>.<minor>.<patch> (git tag v1.0.0 && git push origin v1.0.0), or run the
-# workflow by hand with a tag name (the tag is created on the selected commit if it does not exist).
+# Normal way: Actions → Release → Run workflow (from main), choose patch / minor / major. The workflow computes
+# the next version from Directory.Build.props, runs the unit tests, builds lrw for every platform and the
+# Windows app installer, and only when all of that worked commits the new version ("Release vX.Y.Z"), tags it
+# and publishes the GitHub release. If anything fails, the repository is left as it was.
+# Fallback: push a tag v<major>.<minor>.<patch> yourself - then nothing is committed.
 #
-# Assets: lrw-<rid>.zip (Windows) / lrw-<rid>.tar.gz (Linux, macOS), each holding one self-contained
-# executable, plus SHA256SUMS.txt. lrw-setup.ps1 (the Claude skill's installer) downloads exactly these.
+# Assets: lrw-<rid>.zip / .tar.gz (one self-contained executable each; lrw-setup.ps1 downloads these),
+# the app's Velopack files (LinuxRemoteWorker-win-Setup.exe for a first install, the full .nupkg and
+# releases.win.json for automatic updates), LinuxRemoteWorker-update.sig.json - the update's hash signed with the
+# UPDATE_SIGNING_KEY secret, which installed apps check before updating - and SHA256SUMS.txt.
 
-name: Release lrw
+name: Release
 
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
     inputs:
-      tag:
-        description: Tag to release, for example v1.0.0
-        required: true
+      bump:
+        description: Which part of the version to raise
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+  push:
+    tags: ['v*']
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 env:
-  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+  VPK_VERSION: 1.2.161
 
 jobs:
-  build:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+      commit: ${{ steps.next.outputs.commit }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      - id: next
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          BUMP: ${{ inputs.bump }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = workflow_dispatch ]; then
+            [ "$GITHUB_REF" = refs/heads/main ] || { echo "::error::Run the release from main, not $GITHUB_REF_NAME."; exit 1; }
+            current=$(sed -n 's:.*<Version>\(.*\)</Version>.*:\1:p' Directory.Build.props)
+            version=$(bash tools/next-version.sh "$current" "$BUMP")
+            if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+              echo "::error::Tag v$version already exists - raise Directory.Build.props past it first."; exit 1
+            fi
+            echo "commit=true" >> "$GITHUB_OUTPUT"
+          else
+            version="${GITHUB_REF_NAME#v}"
+            [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Tag $GITHUB_REF_NAME is not v<major>.<minor>.<patch>."; exit 1; }
+            echo "commit=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Releasing $version"
+
+  test:
+    needs: version
+    uses: ./.github/workflows/tests.yml
+
+  cli:
     name: lrw-${{ matrix.rid }}
+    needs: [version, test]
     strategy:
       fail-fast: false
       matrix:
@@ -38,20 +87,21 @@ jobs:
           - { rid: osx-x64, os: macos-latest, archive: tar.gz }
           - { rid: osx-arm64, os: macos-latest, archive: tar.gz }
     runs-on: ${{ matrix.os }}
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
         with:
           dotnet-version: 8.0.x
 
       - name: Publish
         shell: bash
         run: |
-          version="${TAG#v}"
           dotnet publish LinuxRemoteWorker.Cli/LinuxRemoteWorker.Cli.csproj -c Release -r ${{ matrix.rid }} \
             --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
-            -p:DebugType=none -p:Version="$version" -o "out/${{ matrix.rid }}"
+            -p:DebugType=none -p:Version="$VERSION" -o "out/${{ matrix.rid }}"
 
       - name: Package
         shell: bash
@@ -64,34 +114,108 @@ jobs:
             tar -czf "../../dist/lrw-${{ matrix.rid }}.tar.gz" .
           fi
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: lrw-${{ matrix.rid }}
           path: dist/*
           if-no-files-found: error
 
-  release:
-    needs: build
-    runs-on: ubuntu-latest
+  app:
+    name: desktop app
+    needs: [version, test]
+    runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Check the update signing key is built in
+        shell: bash
+        run: |
+          [ -f LinuxRemoteWorker/Update/update-signing.pub.pem ] || {
+            echo "::error::LinuxRemoteWorker/Update/update-signing.pub.pem is missing - run tools/new-update-signing-key.ps1 and commit it."; exit 1; }
+
+      - name: Publish
+        shell: bash
+        run: |
+          dotnet publish LinuxRemoteWorker/LinuxRemoteWorker.csproj -c Release -r win-x64 --self-contained true \
+            -p:Version="$VERSION" -o out/app
+
+      - name: Package with Velopack
+        shell: bash
+        run: |
+          dotnet tool install --global vpk --version "$VPK_VERSION"
+          vpk pack --packId LinuxRemoteWorker --packVersion "$VERSION" --packDir out/app \
+            --mainExe LinuxRemoteWorker.exe --packTitle "Linux Remote Worker" --outputDir out/velopack
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: app
+          path: out/velopack/*
+          if-no-files-found: error
+
+  release:
+    needs: [version, cli, app]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           path: dist
-          pattern: lrw-*
           merge-multiple: true
+
+      - name: Sign the update
+        shell: bash
+        env:
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          [ -n "$UPDATE_SIGNING_KEY" ] || { echo "::error::The UPDATE_SIGNING_KEY secret is not set - see tools/new-update-signing-key.ps1."; exit 1; }
+          key=$(mktemp)
+          trap 'rm -f "$key"' EXIT
+          printf '%s\n' "$UPDATE_SIGNING_KEY" > "$key"
+          # The secret must be the private half of the public key the app was built with
+          if [ "$(openssl pkey -in "$key" -pubout)" != "$(openssl pkey -pubin -in LinuxRemoteWorker/Update/update-signing.pub.pem -pubout)" ]; then
+            echo "::error::UPDATE_SIGNING_KEY does not match LinuxRemoteWorker/Update/update-signing.pub.pem."; exit 1
+          fi
+          bash tools/sign-update.sh "$key" LinuxRemoteWorker "$VERSION" "dist/LinuxRemoteWorker-$VERSION-full.nupkg" \
+            > dist/LinuxRemoteWorker-update.sig.json
+          cat dist/LinuxRemoteWorker-update.sig.json
 
       - name: Checksums
         run: |
           cd dist
-          sha256sum lrw-* > SHA256SUMS.txt
+          sha256sum * > SHA256SUMS.txt
           cat SHA256SUMS.txt
+
+      - name: Commit and tag the version
+        if: needs.version.outputs.commit == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sed -i "s:<Version>.*</Version>:<Version>$VERSION</Version>:" Directory.Build.props
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Release v$VERSION [skip ci]"
+          git tag "v$VERSION"
+          # Fails without changing anything when main moved on since the run started
+          git push --atomic origin "HEAD:refs/heads/main" "refs/tags/v$VERSION"
 
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$TAG" dist/* \
+          gh release create "v$VERSION" dist/* \
             --repo "${{ github.repository }}" \
-            --target "${{ github.sha }}" \
-            --title "lrw $TAG" \
+            --verify-tag \
+            --title "Linux Remote Worker v$VERSION" \
             --generate-notes

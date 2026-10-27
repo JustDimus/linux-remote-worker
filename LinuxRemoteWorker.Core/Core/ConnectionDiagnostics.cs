@@ -2,6 +2,7 @@ using System.IO;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text;
 using Renci.SshNet.Common;
 
@@ -11,12 +12,12 @@ namespace LinuxRemoteWorker.Core;
 public sealed record ConnectionProblem(string Summary, string Detail, string Hint)
 {
     /// <summary>Everything about the failure, ready to paste into a bug report.</summary>
-    public string ToClipboardText(string host, string username, string keyPath) =>
+    public string ToClipboardText(SshCredentials credentials) =>
         new StringBuilder()
             .AppendLine("Linux Remote Worker - connection failure")
             .AppendLine($"Time:    {DateTime.Now:yyyy-MM-dd HH:mm:ss}")
-            .AppendLine($"Target:  {username}@{host}")
-            .AppendLine($"Key:     {keyPath}")
+            .AppendLine($"Target:  {credentials.Username}@{credentials.Host}")
+            .AppendLine($"Login:   {credentials.AuthDescription}")
             .AppendLine($"Problem: {Summary}")
             .AppendLine($"Detail:  {Detail}")
             .AppendLine($"Hint:    {Hint}")
@@ -34,8 +35,9 @@ public static class ConnectionDiagnostics
     /// <summary>
     /// Checks what can be checked before dialling out. Returns null when the input looks usable.
     /// </summary>
-    public static ConnectionProblem? PreflightCheck(string host, string username, string privateKeyPath)
+    public static ConnectionProblem? PreflightCheck(SshCredentials credentials)
     {
+        var (host, username, privateKeyPath) = (credentials.Host, credentials.Username, credentials.KeyPath);
         if (string.IsNullOrWhiteSpace(host))
             return new ConnectionProblem(
                 "Host is empty",
@@ -48,11 +50,19 @@ public static class ConnectionDiagnostics
                 "No SSH user was entered.",
                 "Enter the Linux user to log in as, for example 'root' or 'ubuntu'.");
 
+        if (credentials.Method == SshAuthMethod.Password)
+            return string.IsNullOrEmpty(credentials.Password)
+                ? new ConnectionProblem(
+                    "Password is empty",
+                    "Password login was chosen, but no password was entered.",
+                    "Type the password of the Linux user, or switch to SSH key login.")
+                : null;
+
         if (string.IsNullOrWhiteSpace(privateKeyPath))
             return new ConnectionProblem(
                 "Private key is not selected",
-                "This app authenticates with an SSH private key, not a password.",
-                "Click Browse and pick your private key file (id_rsa, id_ed25519 or a .pem file).");
+                "SSH key login was chosen, but no private key file was picked.",
+                "Click Browse and pick your private key file (id_rsa, id_ed25519 or a .pem file), or switch to password login.");
 
         if (!File.Exists(privateKeyPath))
             return new ConnectionProblem(
@@ -86,12 +96,54 @@ public static class ConnectionDiagnostics
     }
 
     /// <summary>Explains an exception thrown while connecting.</summary>
-    public static ConnectionProblem Explain(Exception ex, string host, string username, string privateKeyPath)
+    public static ConnectionProblem Explain(Exception ex, SshCredentials credentials)
     {
+        var (host, username, privateKeyPath) = (credentials.Host, credentials.Username, credentials.KeyPath);
         var detail = Flatten(ex);
 
         switch (ex)
         {
+            case HostKeyChangedException changed:
+                return new ConnectionProblem(
+                    "The server's identity changed",
+                    $"{host} presented the SSH host key {changed.Seen}, but {changed.Known.Key} was remembered for it " +
+                    $"on {changed.Known.FirstSeenUtc:yyyy-MM-dd}. Nothing was sent to the server.",
+                    "If the server was reinstalled or its SSH keys were regenerated, this is expected: confirm the new " +
+                    "fingerprint with whoever runs the server (hosting console: `ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`), " +
+                    "then trust the new key. Otherwise someone may be intercepting the connection - do not log in.");
+
+            case SessionRefusedException { PasswordExpired: true }:
+                return new ConnectionProblem(
+                    "The password has to be changed first",
+                    detail,
+                    $"The server accepts the password but requires a new one before anything else can run - common on new " +
+                    $"hosting servers. Log in once in a terminal (Windows has ssh built in): ssh {username}@{host} - enter the " +
+                    "current password, then the new one twice. Then connect here with the new password.");
+
+            case SessionRefusedException:
+                return new ConnectionProblem(
+                    "The server accepted the login but closed the session",
+                    detail,
+                    $"Nothing can run as {username}. Usually the password has expired and must be changed in a terminal first " +
+                    $"(ssh {username}@{host}); otherwise the account has no shell (nologin, an SFTP-only or git-only account, " +
+                    "ForceCommand in sshd_config) - log in as another user.");
+
+            // The server lists the methods it accepts; without "password" it only takes keys
+            case SshAuthenticationException when credentials.Method == SshAuthMethod.Password && OnlyKeysAccepted(detail):
+                return new ConnectionProblem(
+                    "This server does not accept passwords",
+                    detail,
+                    $"{host} allows SSH key logins only (PasswordAuthentication is off in its sshd_config). " +
+                    "Log in with a private key whose public half is in the user's ~/.ssh/authorized_keys.");
+
+            case SshAuthenticationException when credentials.Method == SshAuthMethod.Password:
+                return new ConnectionProblem(
+                    "The server rejected the password",
+                    detail,
+                    $"Check the password (it is case-sensitive) and that user '{username}' exists on {host}. " +
+                    "Root logins with a password are often forbidden (PermitRootLogin prohibit-password) - try the user " +
+                    "the hosting provider gave you. Many failed attempts can get your IP blocked for a while (fail2ban).");
+
             case SshAuthenticationException:
                 return new ConnectionProblem(
                     "The server rejected the key",
@@ -142,20 +194,23 @@ public static class ConnectionDiagnostics
                     detail,
                     "Type the key's passphrase into the PASSPHRASE field and connect again.");
 
+            // A wrong passphrase decrypts to garbage: OpenSSH keys then fail their check bytes,
+            // PEM keys fail the cipher's padding check (a CryptographicException, not an SshException)
             case SshException when LooksLikeBadPassphrase(detail):
+            case CryptographicException:
                 return new ConnectionProblem(
                     "Wrong key passphrase, or an unsupported key format",
                     detail,
-                    "Re-check the passphrase. If the key starts with '-----BEGIN OPENSSH PRIVATE KEY-----' " +
-                    "and keeps failing, convert it to PEM: ssh-keygen -p -m PEM -f <keyfile>");
+                    "Re-check the passphrase - it is case-sensitive. To test it outside the app, run " +
+                    "'ssh-keygen -y -f <keyfile>': it asks for the passphrase and prints the public key when it is right.");
 
             case SshException when detail.Contains("private key", StringComparison.OrdinalIgnoreCase):
                 return new ConnectionProblem(
                     "The private key file could not be read",
                     detail,
-                    "The file does not look like an SSH private key. It must start with " +
-                    "'-----BEGIN ... PRIVATE KEY-----'. A PuTTY .ppk file will not work - export it " +
-                    "first with PuTTYgen: Conversions -> Export OpenSSH key.");
+                    "The file does not look like an SSH private key. Supported are OpenSSH keys " +
+                    "('-----BEGIN OPENSSH PRIVATE KEY-----'), PEM keys ('-----BEGIN RSA/EC PRIVATE KEY-----') " +
+                    "and PuTTY .ppk files with RSA, ECDSA or Ed25519 keys; DSA keys are not supported.");
 
             default:
                 return new ConnectionProblem(
@@ -236,10 +291,15 @@ public static class ConnectionDiagnostics
         }
     }
 
+    // SSH.NET reports e.g. "No suitable authentication method found to complete authentication (publickey)."
+    private static bool OnlyKeysAccepted(string detail) =>
+        detail.Contains("(publickey)", StringComparison.OrdinalIgnoreCase);
+
     private static bool LooksLikeBadPassphrase(string detail) =>
         detail.Contains("passphrase", StringComparison.OrdinalIgnoreCase) ||
         detail.Contains("decrypt", StringComparison.OrdinalIgnoreCase) ||
-        detail.Contains("padding", StringComparison.OrdinalIgnoreCase);
+        detail.Contains("padding", StringComparison.OrdinalIgnoreCase) ||
+        detail.Contains("check bytes", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Flattens nested exception messages into one readable line.</summary>
     private static string Flatten(Exception ex)

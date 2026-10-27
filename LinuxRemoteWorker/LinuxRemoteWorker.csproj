@@ -6,10 +6,19 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <!-- Program.Main runs Velopack's hooks before WPF starts -->
+    <StartupObject>LinuxRemoteWorker.Program</StartupObject>
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- The public half of the update signing key (tools/new-update-signing-key.ps1); without it updates stay off -->
+    <EmbeddedResource Include="Update\update-signing.pub.pem" LogicalName="update-signing.pub.pem"
+                      Condition="Exists('Update\update-signing.pub.pem')" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
+    <PackageReference Include="Velopack" Version="1.2.161" />
   </ItemGroup>
 
   <ItemGroup>

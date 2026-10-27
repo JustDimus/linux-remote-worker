@@ -93,4 +93,10 @@ public sealed class ArgAttribute : Attribute
 
     /// <summary>The only accepted values of a string parameter.</summary>
     public string[]? Choices { get; set; }
+
+    /// <summary>
+    /// A path on the server. On the CLI a Windows-style value (C:/...) is refused with an explanation: Git Bash
+    /// rewrites arguments that start with / into Windows paths before the program sees them.
+    /// </summary>
+    public bool RemotePath { get; set; }
 }

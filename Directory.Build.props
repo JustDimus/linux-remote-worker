@@ -1,0 +1,11 @@
+<Project>
+
+  <!--
+    The one version of everything: the desktop app, lrw and the libraries. The Release workflow
+    (Actions → Release → Run workflow) bumps it, commits it and tags the release with it.
+  -->
+  <PropertyGroup>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+
+</Project>

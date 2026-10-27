@@ -10,8 +10,15 @@ public partial class ConnectView : UserControl
         InitializeComponent();
         DataContextChanged += (_, _) =>
         {
-            if (DataContext is ConnectViewModel vm)
-                PassBox.PasswordChanged += (_, _) => vm.Passphrase = PassBox.Password;
+            if (DataContext is not ConnectViewModel vm) return;
+            // PasswordBox cannot be bound, so the secrets are pushed to the view-model by hand
+            PassBox.PasswordChanged += (_, _) => vm.Passphrase = PassBox.Password;
+            LoginPassBox.PasswordChanged += (_, _) => vm.Password = LoginPassBox.Password;
+            vm.ClearSecrets += () =>
+            {
+                PassBox.Clear();
+                LoginPassBox.Clear();
+            };
         };
     }
 }

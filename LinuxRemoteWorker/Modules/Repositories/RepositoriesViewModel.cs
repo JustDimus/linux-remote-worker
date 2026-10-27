@@ -23,10 +23,14 @@ public partial class RepositoriesViewModel : BaseViewModel, IModule
 
     // Clone form
     [ObservableProperty] private string _cloneUrl = string.Empty;
-    [ObservableProperty] private string _cloneBranch = string.Empty;
     [ObservableProperty] private string _cloneName = string.Empty;
+    public GitSourcePickerViewModel ClonePicker { get; } = new(allowDefaultBranch: true);
 
-    // Streaming log (install / clone)
+    // Switch panel: the clone being moved to another version, null while closed
+    [ObservableProperty] private RepoInfo? _switchRepo;
+    public GitSourcePickerViewModel SwitchPicker { get; } = new(allowDefaultBranch: false);
+
+    // Streaming log (install / clone / update)
     [ObservableProperty] private string _outputLog = string.Empty;
     [ObservableProperty] private bool _isBusyRepo;
 
@@ -102,16 +106,46 @@ public partial class RepositoriesViewModel : BaseViewModel, IModule
         }
     }
 
+    // ── Clone ──────────────────────────────────────────────────────────────
+
+    [RelayCommand]
+    private async Task LoadCloneRefsAsync()
+    {
+        var url = CloneUrl.Trim();
+        if (RepositoryService.ValidateUrl(url) is { } error)
+        {
+            SetStatus(error, isError: true);
+            return;
+        }
+
+        IsBusyRepo = true;
+        await RunSafeAsync(async () =>
+        {
+            ClonePicker.Load(await _repos.ListRefsAsync(url));
+            SetStatus(ClonePicker.RefsSummary);
+        }, $"Reading branches and tags of {url}...");
+        IsBusyRepo = false;
+    }
+
     [RelayCommand]
     private async Task CloneAsync()
     {
         var url = CloneUrl.Trim();
-        var branch = CloneBranch.Trim();
         // Derive folder name if not provided: strip .git and path
         var name = string.IsNullOrWhiteSpace(CloneName) ? RepositoryService.DefaultFolderName(url) : CloneName.Trim();
 
-        var error = RepositoryService.ValidateClone(url, branch, name);
-        if (error != null)
+        GitSource? source;
+        try
+        {
+            source = ClonePicker.Build();
+        }
+        catch (OperationException ex)
+        {
+            SetStatus(ex.Message, isError: true);
+            return;
+        }
+
+        if (RepositoryService.ValidateClone(url, name, source) is { } error)
         {
             SetStatus(error, isError: true);
             return;
@@ -123,26 +157,80 @@ public partial class RepositoriesViewModel : BaseViewModel, IModule
         {
             void Append(string l) => OutputLog += l + "\n";
 
-            var dir = await _repos.CloneAsync(url, branch, name, Append);
+            var change = await _repos.CloneAsync(url, source, name, Append);
 
-            Append("\n✓ Done");
+            Append($"\n✓ {change.Summary}");
             CloneUrl = string.Empty;
-            CloneBranch = string.Empty;
             CloneName = string.Empty;
+            ClonePicker.Reset();
             await LoadReposAsync();
-            SetStatus($"Cloned into {dir}");
+            SetStatus(change.Summary);
+        });
+        IsBusyRepo = false;
+    }
+
+    // ── Update / switch ────────────────────────────────────────────────────
+
+    [RelayCommand]
+    private async Task UpdateAsync(RepoInfo repo)
+    {
+        IsBusyRepo = true;
+        OutputLog = string.Empty;
+        await RunSafeAsync(async () =>
+        {
+            void Append(string l) => OutputLog += l + "\n";
+            var change = await ThenReloadAsync(
+                () => WithForceRetryAsync(force => _repos.UpdateAsync(repo.Name, force, Append), repo.Name),
+                LoadReposAsync);
+            Append($"\n✓ {change.Summary}");
+            SetStatus(change.Summary + (change.Changed ? " - redeploy the services built from it to run this version." : ""));
         });
         IsBusyRepo = false;
     }
 
     [RelayCommand]
-    private async Task PullAsync(RepoInfo repo)
+    private async Task OpenSwitchAsync(RepoInfo repo)
     {
+        SwitchRepo = repo;
+        SwitchPicker.Reset();
+        SwitchPicker.Preset(repo.Source);
+
         IsBusyRepo = true;
+        await RunSafeAsync(async () => SwitchPicker.Load(await _repos.ListRefsAsync(repo.Name)),
+            $"Reading branches and tags of {repo.Name}...");
+        IsBusyRepo = false;
+    }
+
+    [RelayCommand]
+    private void CancelSwitch() => SwitchRepo = null;
+
+    [RelayCommand]
+    private async Task ApplySwitchAsync()
+    {
+        if (SwitchRepo is not { } repo) return;
+
+        GitSource source;
+        try
+        {
+            source = SwitchPicker.Build()!;
+        }
+        catch (OperationException ex)
+        {
+            SetStatus(ex.Message, isError: true);
+            return;
+        }
+
+        IsBusyRepo = true;
+        OutputLog = string.Empty;
         await RunSafeAsync(async () =>
         {
-            var result = await ThenReloadAsync(() => _repos.PullAsync(repo.Name), LoadReposAsync);
-            SetStatus($"Pull: {result}");
+            void Append(string l) => OutputLog += l + "\n";
+            var change = await ThenReloadAsync(
+                () => WithForceRetryAsync(force => _repos.SwitchAsync(repo.Name, source, force, Append), repo.Name),
+                LoadReposAsync);
+            Append($"\n✓ {change.Summary}");
+            SwitchRepo = null;
+            SetStatus(change.Summary + " - redeploy the services built from it to run this version.");
         });
         IsBusyRepo = false;
     }
@@ -158,6 +246,7 @@ public partial class RepositoriesViewModel : BaseViewModel, IModule
         await RunSafeAsync(async () =>
         {
             await _repos.DeleteAsync(repo.Name);
+            if (SwitchRepo?.Name == repo.Name) SwitchRepo = null;
             await LoadReposAsync();
             SetStatus($"Removed {repo.Name}");
         });

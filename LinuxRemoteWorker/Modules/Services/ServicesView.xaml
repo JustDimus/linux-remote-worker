@@ -2,7 +2,8 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:conv="clr-namespace:LinuxRemoteWorker.Converters"
-             xmlns:b="clr-namespace:LinuxRemoteWorker.Behaviors">
+             xmlns:b="clr-namespace:LinuxRemoteWorker.Behaviors"
+             xmlns:views="clr-namespace:LinuxRemoteWorker.Views">
     <UserControl.Resources>
         <conv:BoolToVisibilityConverter x:Key="BoolToVisibility"/>
         <conv:InvertBoolToVisibilityConverter x:Key="InvertBoolToVisibility"/>
@@ -10,6 +11,7 @@
         <conv:StringToVisibilityConverter x:Key="StringToVisibility"/>
         <conv:ZeroCountToVisibilityConverter x:Key="ZeroCountToVisibility"/>
         <conv:NotNullToVisibilityConverter x:Key="NotNullToVisibility"/>
+        <conv:NullToVisibilityConverter x:Key="NullToVisibility"/>
 
         <Style x:Key="SectionLabel" TargetType="TextBlock">
             <Setter Property="Foreground" Value="#888"/>
@@ -28,7 +30,7 @@
             <Setter Property="VerticalContentAlignment" Value="Center"/>
             <Setter Property="CaretBrush" Value="White"/>
         </Style>
-        <Style x:Key="PrimaryBtn" TargetType="Button">
+        <Style x:Key="PrimaryBtn" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
             <Setter Property="Background" Value="#3D5AFE"/>
             <Setter Property="Foreground" Value="White"/>
             <Setter Property="BorderThickness" Value="0"/>
@@ -37,7 +39,7 @@
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Height" Value="34"/>
         </Style>
-        <Style x:Key="SecondaryBtn" TargetType="Button">
+        <Style x:Key="SecondaryBtn" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
             <Setter Property="Background" Value="#2A2A3E"/>
             <Setter Property="Foreground" Value="#AAA"/>
             <Setter Property="BorderThickness" Value="0"/>
@@ -158,6 +160,7 @@
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="130"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <StackPanel Grid.Column="0" Margin="0 0 8 0">
@@ -168,9 +171,15 @@
                                 <TextBlock Text="ASPNETCORE_URLS" Foreground="#555" FontSize="10" Margin="0 0 0 3"/>
                                 <TextBox Text="{Binding AspNetUrls, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Field}"/>
                             </StackPanel>
-                            <Button Grid.Column="2" Content="🚀 Build &amp; Deploy" Command="{Binding DeployCommand}"
+                            <StackPanel Grid.Column="2" Margin="0 0 8 0">
+                                <TextBlock Text="Environment" Foreground="#555" FontSize="10" Margin="0 0 0 3"/>
+                                <TextBox Text="{Binding DeployEnvironment, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource Field}"/>
+                            </StackPanel>
+                            <Button Grid.Column="3" Content="🚀 Build &amp; Deploy" Command="{Binding DeployCommand}"
                                     Style="{StaticResource PrimaryBtn}" VerticalAlignment="Bottom"/>
                         </Grid>
+                        <TextBlock Foreground="#444" FontSize="11" TextWrapping="Wrap"
+                                   Text="Second instance of a service: clone its repository again under another folder name (Repositories), then deploy that clone with another app name and port."/>
                     </StackPanel>
                 </Border>
 
@@ -204,6 +213,8 @@
                                                     <TextBlock Text="{Binding AppName}" Foreground="White" FontSize="14" FontWeight="Medium"/>
                                                 </StackPanel>
                                                 <TextBlock Text="{Binding StatusText}" Foreground="#666" FontSize="11" Margin="16 2 0 0"/>
+                                                <TextBlock Text="{Binding VersionText}" Foreground="#7B8CDE" FontSize="11" Margin="16 2 0 0"
+                                                           Visibility="{Binding VersionText, Converter={StaticResource StringToVisibility}}"/>
                                             </StackPanel>
                                             <StackPanel Grid.Column="1" Orientation="Horizontal">
                                                 <Button Content="▶ Start" Margin="0 0 4 0" Style="{StaticResource SecondaryBtn}"
@@ -243,6 +254,33 @@
                     <StackPanel>
                         <TextBlock Style="{StaticResource SectionLabel}"
                                    Text="{Binding SelectedService.AppName, StringFormat='MANAGE: {0}'}"/>
+
+                        <!-- Version -->
+                        <TextBlock Text="version" Foreground="#888" FontSize="11" Margin="0 4 0 4"/>
+                        <Border Background="#13131F" CornerRadius="4" Padding="10 8" Margin="0 0 0 8">
+                            <StackPanel>
+                                <TextBlock Text="{Binding SelectedService.VersionText, StringFormat='Runs {0}'}" Foreground="#DDD" FontSize="12"
+                                           TextWrapping="Wrap"
+                                           Visibility="{Binding SelectedService.VersionText, Converter={StaticResource StringToVisibility}}"/>
+                                <TextBlock Foreground="#666" FontSize="12" TextWrapping="Wrap"
+                                           Text="Deployed before versions were recorded - the next redeploy records what it runs."
+                                           Visibility="{Binding SelectedService.Deployment, Converter={StaticResource NullToVisibility}}"/>
+                            </StackPanel>
+                        </Border>
+                        <views:GitSourcePickerView DataContext="{Binding VersionPicker}" Margin="0 0 0 8"/>
+                        <StackPanel Orientation="Horizontal" Margin="0 0 0 4">
+                            <Button Content="Load branches &amp; tags" Command="{Binding LoadVersionRefsCommand}"
+                                    Style="{StaticResource SecondaryBtn}" Margin="0 0 6 0"/>
+                            <Button Content="⇄ Switch &amp; redeploy" Command="{Binding SwitchVersionCommand}"
+                                    Style="{StaticResource PrimaryBtn}" Margin="0 0 6 0"
+                                    ToolTip="Check out the chosen version in the clone, rebuild and restart - also how to roll back to an older tag"/>
+                            <Button Content="⬆ Update &amp; redeploy" Command="{Binding UpdateRedeployCommand}"
+                                    Background="#1E3A2E" Foreground="#6CCF97" BorderThickness="0"
+                                    Padding="12 6" FontSize="12" Cursor="Hand"
+                                    ToolTip="Move the clone to the newest version of what it follows (branch head or latest release), rebuild and restart"/>
+                        </StackPanel>
+                        <TextBlock Foreground="#444" FontSize="11" TextWrapping="Wrap" Margin="0 0 0 16"
+                                   Text="Both change the clone itself, so other services built from the same clone get that version on their next redeploy."/>
 
                         <!-- Unit editor -->
                         <TextBlock Text="systemd unit" Foreground="#888" FontSize="11" Margin="0 4 0 4"/>

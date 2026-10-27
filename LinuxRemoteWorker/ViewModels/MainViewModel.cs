@@ -7,8 +7,10 @@ using LinuxRemoteWorker.Modules.Logs;
 using LinuxRemoteWorker.Modules.Nginx;
 using LinuxRemoteWorker.Modules.Postgres;
 using LinuxRemoteWorker.Modules.Repositories;
+using LinuxRemoteWorker.Modules.Security;
 using LinuxRemoteWorker.Modules.Services;
 using LinuxRemoteWorker.Modules.SystemInfo;
+using LinuxRemoteWorker.Update;
 
 namespace LinuxRemoteWorker.ViewModels;
 
@@ -20,11 +22,15 @@ public partial class MainViewModel : BaseViewModel
     public SystemInfoViewModel SystemInfoVM { get; }
     public PostgresViewModel PostgresVM { get; }
     public FirewallViewModel FirewallVM { get; }
+    public SecurityViewModel SecurityVM { get; }
     public RepositoriesViewModel RepositoriesVM { get; }
     public ServicesViewModel ServicesVM { get; }
     public NginxViewModel NginxVM { get; }
     public LogsViewModel LogsVM { get; }
     public AppLogViewModel AppLogVM { get; }
+
+    /// <summary>Version and automatic updates, shown at the bottom of the sidebar.</summary>
+    public UpdateService Updates { get; }
 
     [ObservableProperty] private BaseViewModel? _activeModule;
     [ObservableProperty] private bool _isConnected;
@@ -37,11 +43,15 @@ public partial class MainViewModel : BaseViewModel
         SystemInfoVM = new SystemInfoViewModel(_ssh);
         PostgresVM = new PostgresViewModel(_ssh);
         FirewallVM = new FirewallViewModel(_ssh);
+        SecurityVM = new SecurityViewModel(_ssh, (keyPath, user, passphrase) => ConnectVM.SwitchToKeyAsync(keyPath, user, passphrase));
         RepositoriesVM = new RepositoriesViewModel(_ssh);
         ServicesVM = new ServicesViewModel(_ssh);
         NginxVM = new NginxViewModel(_ssh);
         LogsVM = new LogsViewModel(_ssh);
         AppLogVM = new AppLogViewModel();
+
+        Updates = new UpdateService(UpdateService.IsDisabled(Environment.GetCommandLineArgs()));
+        Updates.Start();
 
         ConnectVM.ConnectedSuccessfully += OnConnected;
         // Disconnecting on the connection screen must also lock the module navigation again

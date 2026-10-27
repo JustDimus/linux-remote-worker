@@ -28,6 +28,7 @@ public sealed class ParameterSpec
     public string? Short { get; init; }
     public bool Secret { get; init; }
     public bool AllowFile { get; init; }
+    public bool RemotePath { get; init; }
 
     /// <summary>Accepted values (kebab-case enum members, or a string parameter's choices).</summary>
     public IReadOnlyList<string> Choices { get; init; } = [];
@@ -118,7 +119,7 @@ public sealed class CommandCatalog
 
     // The order a person reads help in: connect first, then the modules, local diagnostics last
     private static readonly string[] HelpOrder =
-        ["profiles", "connection", "system", "files", "pg", "repos", "dotnet", "services", "logs", "nginx", "certs", "firewall", "applog"];
+        ["profiles", "connection", "system", "files", "pg", "repos", "dotnet", "services", "logs", "nginx", "certs", "firewall", "security", "applog"];
 
     private static int GroupOrder(string name)
     {
@@ -189,6 +190,7 @@ public sealed class CommandCatalog
             Short = arg.Short,
             Secret = arg.Secret,
             AllowFile = arg.AllowFile,
+            RemotePath = arg.RemotePath,
             Choices = choices
         };
     }

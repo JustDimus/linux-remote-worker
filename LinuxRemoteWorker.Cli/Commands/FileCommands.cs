@@ -11,7 +11,7 @@ public sealed class FileCommands : CommandSet
     public FileCommands(CommandContext context) : base(context) { }
 
     [Command("list", "List a directory on the server: name, type, size and modification time.", ReadOnly = true)]
-    public async Task<object> List([Arg("Absolute directory path on the server", Positional = true)] string path)
+    public async Task<object> List([Arg("Absolute directory path on the server", Positional = true, RemotePath = true)] string path)
     {
         var dir = RemotePath(path);
         var ssh = await SshAsync();
@@ -22,7 +22,7 @@ public sealed class FileCommands : CommandSet
     [Command("read", "Print the last (or with --head the first) lines of a text file on the server.", ReadOnly = true,
         Example = "files read /etc/nginx/nginx.conf --head --lines 100")]
     public async Task<object> Read(
-        [Arg("Absolute file path on the server", Positional = true)] string path,
+        [Arg("Absolute file path on the server", Positional = true, RemotePath = true)] string path,
         [Arg("How many lines")] int lines = 200,
         [Arg("Read from the start of the file instead of the end")] bool head = false)
     {
@@ -40,7 +40,7 @@ public sealed class FileCommands : CommandSet
     [Command("download", "Copy a file from the server to this computer.", ReadOnly = true,
         Example = "files download /var/log/nginx/error.log --to ./logs/")]
     public async Task<Outcome> Download(
-        [Arg("Absolute file path on the server", Positional = true)] string path,
+        [Arg("Absolute file path on the server", Positional = true, RemotePath = true)] string path,
         [Arg("Local file or existing folder; default: the current folder")] string? to = null)
     {
         var remote = RemotePath(path);
@@ -54,7 +54,7 @@ public sealed class FileCommands : CommandSet
         Unrestricted = true, Example = "files upload ./appsettings.Production.json /srv/lrw/apps/shop-api/")]
     public async Task<Outcome> Upload(
         [Arg("Local file to send", Positional = true)] string local,
-        [Arg("Absolute target path on the server; ending in / means 'into this directory'", Positional = true)] string path,
+        [Arg("Absolute target path on the server; ending in / means 'into this directory'", Positional = true, RemotePath = true)] string path,
         [Arg("Replace the file if it already exists")] bool overwrite = false)
     {
         var source = Path.GetFullPath(local);

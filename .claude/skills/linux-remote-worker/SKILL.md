@@ -24,8 +24,18 @@ Use whichever is at hand; this guide shows CLI syntax.
    No profile yet: `lrw profiles add <name> --host <ip> --key <private key path>` (ask the user for
    these - never guess a key path). Encrypted key: the passphrase comes from the `LRW_PASSPHRASE`
    environment variable; ask the user to set it rather than putting it on a command line.
+   **Password only (no key yet):** never ask the user to type a password into the chat. Ask them to save
+   it themselves - in the desktop app (Password + *Remember password*), or by setting an environment
+   variable and running `lrw profiles add <name> --host <ip> --user <user> --password env:<VAR>` - or
+   to set `LRW_PASSWORD` for the session. Then offer to switch the server to a key (see *Harden SSH logins*).
 3. Run `lrw connection test --profile <name> --json`. On failure `error.hint` says what to fix
-   (DNS, port 22 blocked, key not in authorized_keys, passphrase needed); relay it to the user.
+   (DNS, port 22 blocked, key or password rejected, passphrase needed); relay it to the user.
+   `data.privileges` is `root`, `sudo` (a user with passwordless sudo - every command runs through
+   `sudo -n`, nothing else changes) or `none` (not root, no passwordless sudo: changing commands fail -
+   tell the user).
+   **"The server's identity changed"** (its SSH host key differs from the one remembered on the first
+   login): stop and tell the user - it may be an interception. Run `lrw connection forget-host-key --yes`
+   only after they confirm the server was reinstalled or its keys were regenerated.
 
 ## Reading results
 
@@ -59,7 +69,8 @@ one JSON object:
 - **Destructive commands refuse to run without `--yes`** (exit 4): `pg db drop`, `pg users drop`,
   `pg hba remove`, `repos remove`, `services remove`, `dotnet uninstall`, `nginx stop`,
   `nginx sites delete`, `certs delete`, `certs renew`, `firewall disable`, `firewall delete`,
-  `profiles remove`. Never add `--yes` on your own initiative: tell the user exactly what will be
+  `profiles remove`, `security disable-password-login`, `security enable-password-login`,
+  `security disable-root-login`, `security enable-root-login`, `security remove-key`, `connection forget-host-key`. Never add `--yes` on your own initiative: tell the user exactly what will be
   deleted or taken offline, on which server, and add `--yes` only after they agree to that action.
 - **Prefer dedicated commands over `system exec` and `pg sql`.** The dedicated ones validate input and
   roll back failed changes; the raw ones do neither. Use the raw ones for reading (`ss -tlnp`,
@@ -84,7 +95,7 @@ lrw repos status --json                       # git installed? deploy key?
 lrw repos install-git --json                  # if gitVersion is null
 lrw repos deploy-key --generate --json        # give data.publicKey to the user: add it as a read-only
                                               # Deploy key in GitHub/GitLab, wait for them to confirm
-lrw repos clone --url git@github.com:acme/shop.git --json
+lrw repos clone --url git@github.com:acme/shop.git --json   # default branch; versions: see below
 lrw dotnet status --json; lrw dotnet install --version 8.0 --json    # match the project's TargetFramework
 lrw services projects --repo shop --json
 lrw services deploy --repo shop --csproj src/Shop.Api/Shop.Api.csproj --name shop-api --urls http://127.0.0.1:5000 --json
@@ -98,7 +109,68 @@ The domain must already point to the server (DNS A/AAAA record) before `certs se
 and stops early otherwise. Use `--dry-run` first when unsure - real failures count against
 Let's Encrypt rate limits. Tell the user to call `app.UseForwardedHeaders()` in ASP.NET Core.
 
-**Update a deployed app to the latest commit**: `lrw services redeploy shop-api --pull --json`
+**Versions: choose, update, roll back.** A clone follows a branch, the latest release (highest semver
+tag) or a fixed tag/commit; the source options are `--branch` | `--tag` | `--commit` |
+`--latest-release [--pattern 'v*'] [--prereleases]`.
+```
+lrw repos refs git@github.com:acme/shop.git --json     # default branch, branches, tags, latestRelease
+lrw repos clone --url git@github.com:acme/shop.git --name shop --latest-release --json
+lrw services redeploy shop-api --update --json          # newest commit of its branch / newest release, rebuild, restart
+lrw services redeploy shop-api --tag v1.4.1 --json      # move to (roll back to) a version, rebuild, restart
+lrw services show shop-api --json                       # data.deployment: version and commit running now
+```
+`--update` leaves a clone pinned to a tag or commit where it is. Exit 4 from `--update`, a version
+option or `repos checkout`: files were changed on the server or the branch diverged from origin -
+tell the user; `--force` discards that, so add it only with their agreement. Changing a clone's version
+affects every service built from that clone on its next redeploy.
+
+**Two instances of one app** (e.g. production on the latest release, staging on a branch): clone the
+repository twice under different names and deploy each clone under its own app name and port.
+```
+lrw repos clone --url git@github.com:acme/shop.git --name shop-prod --latest-release --json
+lrw repos clone --url git@github.com:acme/shop.git --name shop-staging --branch develop --json
+lrw services deploy --repo shop-prod --csproj src/Shop.Api/Shop.Api.csproj --name shop-prod --urls http://127.0.0.1:5000 --json
+lrw services deploy --repo shop-staging --csproj src/Shop.Api/Shop.Api.csproj --name shop-staging --urls http://127.0.0.1:5001 --environment Staging --json
+```
+A port another service or process already uses is refused (exit 4) with a free one suggested. Ask the
+user whether the instances need separate databases or settings before they share one by accident.
+
+**Harden SSH logins: password → key only** (the user has only a password, or wants passwords off)
+```
+lrw security status --json                        # sessionAuth, passwordLoginAllowed, authorizedKeys
+lrw security add-my-key --key ~/.ssh/id_ed25519 --json   # preferred when this computer has a key: only the
+                                                  # public half goes to the server; tested with a fresh login
+lrw security create-key --json                    # otherwise: key made on the server, private half downloaded to
+                                                  # ~/.ssh/lrw_<host>_ed25519 (only this user can read it),
+                                                  # added to authorized_keys, removed from the server, tested
+lrw profiles update <profile> --key "<data.privateKeyPath>" --json   # the profile now logs in with the key
+lrw connection test --json                        # auth: "key"
+lrw security disable-password-login --yes --json  # only after the user agreed to keys-only logins
+```
+`disable-password-login` refuses (exit 4) from a session that logged in with a password, so the key is
+proven before passwords stop working; it checks sshd, reloads it, tests a fresh key login and undoes
+everything when that fails. It affects every user of the server - say so before asking for agreement.
+`security enable-password-login --yes` removes the app's setting again.
+
+**Let another device in** (the user's Mac, a colleague's laptop): the device keeps its own private key; ask
+the user for its public key (`cat ~/.ssh/id_ed25519.pub` there - never the private key), then
+```
+lrw security add-key --public-key "ssh-ed25519 AAAA… user@mac" [--user admin] --json   # or --public-key @file.pub
+```
+and ask the user to compare `data.fingerprint` with `ssh-keygen -lf ~/.ssh/id_ed25519.pub` on that device.
+A lost device: `lrw security remove-key --fingerprint SHA256:… --yes` (fingerprints in `security status`); the key
+this session logs in with cannot be removed.
+
+**Admin user instead of root** (after the steps above, or when the user wants root logins off)
+```
+lrw security create-admin --user admin --json     # user with passwordless sudo + its own key, tested;
+                                                  # the keys that log in as the current user work for it too
+lrw profiles update <profile> --user admin --key "<data.privateKeyPath>" --json
+lrw connection test --json                        # user: admin, privileges: "sudo"
+lrw security disable-root-login --yes --json      # only after the user agreed; refused while logged in as root
+```
+Root login can only be turned off from the admin user's key login with working sudo; it is tested with a fresh
+login and undone on failure. Profiles that log in as root stop working - say so before asking for agreement.
 
 **Database for an app**
 ```
@@ -132,6 +204,9 @@ lrw applog read --filter ERROR --json                                 # this too
 | Certificate request fails | `error.output` (certbot's reason): DNS not pointing here, port 80 blocked (`firewall status`, cloud security group) |
 | Cannot connect | `connection test` → `error.hint`; `applog read --source cli --filter ERROR` |
 | A change "did nothing" | check `server` in the result - wrong profile? |
+| "The server rejected the password" / "does not accept passwords" | wrong password or user, root password logins forbidden, or the server takes keys only - ask the user for a key or another user |
+| "The server's identity changed" | stop: the host key differs from the remembered one; only the user can confirm it (then `connection forget-host-key --yes`) |
+| App still runs the old version after `repos update` | redeploy it: `services redeploy <app>` (or use `services redeploy <app> --update` in one step) |
 
 ## Installing, updating and removing lrw
 
@@ -156,9 +231,14 @@ lrw-setup.ps1 uninstall [-Purge]              # remove program, PATH entry/link,
   release yet, `install` says so - offer `-Source build` instead.
 - A PATH change reaches only terminals started afterwards. In the current session call the program by
   the `exe` path that `install` / `status` print.
-- `uninstall -Purge` also deletes the CLI's own settings and logs; saved servers (`profiles.json`) are
-  shared with the desktop app and always stay. On Windows, uninstall fails while lrw is running (an MCP
-  server of an open Claude session) - ask the user to close it.
+- **Saved servers stay untouched.** `profiles.json` (its path is `data.profilesFile` in
+  `lrw profiles list --json`) is shared with the desktop app. Uninstalling, reinstalling or updating lrw
+  or this skill never deletes, edits, moves or resets it, and never runs `profiles remove` as part of a
+  clean-up. Only a separate, explicit request from the user to remove profiles allows that. When
+  reporting an uninstall, say that the saved servers were kept.
+- `uninstall -Purge` also deletes the CLI's own settings (`cli.json`) and its `cli-` / `mcp-` logs;
+  `profiles.json` stays. On Windows, uninstall fails while lrw is running (an MCP server of an open
+  Claude session) - ask the user to close it.
 - When this skill was installed from a skills pack, uninstalling the skill through the pack runs
   `lrw-setup.ps1 uninstall` first (`pack-hooks.json`), so the program goes with it.
 
@@ -168,3 +248,9 @@ lrw-setup.ps1 uninstall [-Purge]              # remove program, PATH entry/link,
 - Exact parameters straight from the tool: `lrw help <group> [command]`, or all of them as JSON: `lrw schema`
 - Quoting: `*` must be quoted (`--listen '*'`); `system exec` takes the whole command as one quoted
   argument (or everything after `--`); long text goes in a file: `--content @site.conf`, `--sql @fix.sql`.
+- Windows, Git Bash: arguments that start with `/` are rewritten into Windows paths before lrw sees
+  them (`/etc/nginx/nginx.conf` arrives as `C:/Program Files/Git/etc/nginx/nginx.conf`). Commands taking
+  a server path (`files *`, `nginx logs read`, `services deploy --csproj`, `nginx sites create --root`)
+  refuse such values with exit code 2. Prefix those commands with `MSYS_NO_PATHCONV=1`
+  (`MSYS_NO_PATHCONV=1 lrw files read /etc/nginx/nginx.conf --json`), or use PowerShell or the MCP tools.
+  Paths inside a quoted `system exec "..."` command are not affected.

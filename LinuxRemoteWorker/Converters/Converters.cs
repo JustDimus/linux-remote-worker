@@ -60,6 +60,16 @@ public class NotNullToVisibilityConverter : IValueConverter
         => throw new NotSupportedException();
 }
 
+// Visible when value is null (e.g. a "not recorded yet" note)
+public class NullToVisibilityConverter : IValueConverter
+{
+    public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        => value == null ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+
+    public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+        => throw new NotSupportedException();
+}
+
 // Visible when count == 0 (e.g. "empty list" placeholders)
 public class ZeroCountToVisibilityConverter : IValueConverter
 {

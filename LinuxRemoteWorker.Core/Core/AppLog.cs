@@ -20,9 +20,11 @@ public static class AppLog
     private static readonly object Gate = new();
     private static readonly ConcurrentQueue<string> Recent = new();
 
-    public static readonly string LogDirectory = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "LinuxRemoteWorker", "logs");
+    /// <summary>%AppData%\LinuxRemoteWorker\logs, or LRW_LOG_DIR when set (the tests use it to keep out of the real logs).</summary>
+    public static readonly string LogDirectory =
+        Environment.GetEnvironmentVariable("LRW_LOG_DIR") is { Length: > 0 } configured
+            ? configured
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "LinuxRemoteWorker", "logs");
 
     /// <summary>
     /// File name prefix: "app" for the desktop app, "cli" and "mcp" for the command line. Each process

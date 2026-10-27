@@ -98,7 +98,7 @@ public sealed class NginxCommands : CommandSet
         [Arg("Site (file) name; default: the first domain")] string? name = null,
         [Arg("Proxy target such as http://127.0.0.1:5000")] string? upstream = null,
         [Arg("Proxy to this deployed service - its port is read from ASPNETCORE_URLS")] string? service = null,
-        [Arg("Static root inside /var/www, /srv or /opt; default: /var/www/<name>")] string? root = null,
+        [Arg("Static root inside /var/www, /srv or /opt; default: /var/www/<name>", RemotePath = true)] string? root = null,
         [Arg("Proxy WebSocket/SignalR upgrades")] bool websockets = true,
         [Arg("Static: fall back to /index.html for client-side routes (single-page apps)")] bool spa = false,
         [Arg("client_max_body_size, e.g. 10m")] string maxBody = "10m")
@@ -208,7 +208,7 @@ public sealed class NginxCommands : CommandSet
     [Command("logs read", "The last lines of a file in /var/log/nginx (e.g. error.log or <site>.error.log).", ReadOnly = true,
         Example = "nginx logs read shop.example.com.error.log --lines 100")]
     public async Task<object> LogsRead(
-        [Arg("File name in /var/log/nginx, or its full path", Positional = true)] string file,
+        [Arg("File name in /var/log/nginx, or its full path", Positional = true, RemotePath = true)] string file,
         [Arg("How many lines from the end")] int lines = 200)
     {
         var name = file.StartsWith(DeployPaths.NginxLogs + "/", StringComparison.Ordinal) ? file[(DeployPaths.NginxLogs.Length + 1)..] : file;

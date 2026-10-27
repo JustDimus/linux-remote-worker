@@ -44,6 +44,24 @@ public abstract partial class BaseViewModel : ObservableObject
     protected static Task ThenReloadAsync(Func<Task> action, Func<Task> reload) =>
         ThenReloadAsync(async () => { await action(); return true; }, reload);
 
+    /// <summary>
+    /// Runs a git action that may be refused because files were changed on the server or a branch diverged;
+    /// then asks whether to discard that and runs it again with force. Without a yes the refusal stands.
+    /// </summary>
+    protected static async Task<T> WithForceRetryAsync<T>(Func<bool, Task<T>> action, string what)
+    {
+        try
+        {
+            return await action(false);
+        }
+        catch (Core.OperationException ex) when (ex.Kind == Core.FailureKind.Refused)
+        {
+            if (!Confirm($"{ex.Message}\n\nDiscard what was changed in {what} on the server and try again?", "Discard changes on the server"))
+                throw;
+            return await action(true);
+        }
+    }
+
     protected async Task RunSafeAsync(Func<Task> action, string? busyMessage = null)
     {
         IsBusy = true;
