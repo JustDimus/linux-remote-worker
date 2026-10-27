@@ -571,7 +571,11 @@ function Invoke-Install {
         }
 
         $mcp = Get-OptionalValue $Previous 'mcp'
-        if ($RegisterMcp) { $mcp = Register-Mcp $exe $McpScope $McpProfile }
+        if ($RegisterMcp) {
+            # Without the claude CLI nothing was registered - keep what an earlier run recorded, so uninstall still removes it
+            $registered = Register-Mcp $exe $McpScope $McpProfile
+            if ($null -ne $registered) { $mcp = $registered }
+        }
 
         $state = [pscustomobject][ordered]@{
             version       = $installedVersion

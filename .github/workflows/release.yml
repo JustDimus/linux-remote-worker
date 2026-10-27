@@ -2,8 +2,8 @@
 #
 # Normal way: Actions → Release → Run workflow (from main), choose patch / minor / major. The workflow computes
 # the next version from Directory.Build.props, runs the unit tests, builds lrw for every platform and the
-# Windows app installer, and only when all of that worked commits the new version ("Release vX.Y.Z"), tags it
-# and publishes the GitHub release. If anything fails, the repository is left as it was.
+# Windows app installer, and only when all of that worked commits the new version ("Release vX.Y.Z", in the
+# name of whoever started the run), tags it and publishes the GitHub release. If anything fails, the repository is left as it was.
 # Fallback: push a tag v<major>.<minor>.<patch> yourself - then nothing is committed.
 #
 # Assets: lrw-<rid>.zip / .tar.gz (one self-contained executable each; lrw-setup.ps1 downloads these),
@@ -204,8 +204,9 @@ jobs:
         run: |
           set -euo pipefail
           sed -i "s:<Version>.*</Version>:<Version>$VERSION</Version>:" Directory.Build.props
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # In the name of whoever started the run (their GitHub no-reply address), so the commit is theirs
+          git config user.name "$GITHUB_ACTOR"
+          git config user.email "${GITHUB_ACTOR_ID}+${GITHUB_ACTOR}@users.noreply.github.com"
           git commit -am "Release v$VERSION [skip ci]"
           git tag "v$VERSION"
           # Fails without changing anything when main moved on since the run started

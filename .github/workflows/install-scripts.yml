@@ -1,0 +1,84 @@
+# Installs lrw and the Claude Code skill from the newest release with scripts/install-cli.sh (Ubuntu, macOS) and
+# scripts/install-cli.ps1 (Windows: PowerShell 7 from the file, Windows PowerShell 5.1 the way the one-liner runs
+# it), runs lrw, runs the script again (nothing to download) and uninstalls. Each job installs into throwaway
+# folders; Claude Code itself is not there, so the MCP registration is only reported. Runs only when the scripts
+# change, or by hand.
+
+name: Install scripts
+
+on:
+  push:
+    paths:
+      - scripts/**
+      - .claude/skills/linux-remote-worker/scripts/lrw-setup.ps1
+      - .github/workflows/install-scripts.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unix:
+    name: install-cli.sh (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install, run, update, uninstall
+        shell: bash
+        run: |
+          set -euo pipefail
+          export HOME="$RUNNER_TEMP/home" SHELL=/bin/bash
+          mkdir -p "$HOME/.claude"   # as if Claude Code were installed, so the skill is added
+          bash scripts/install-cli.sh
+          "$HOME/.local/bin/lrw" version --text
+          "$HOME/.local/bin/lrw" help >/dev/null
+          grep -qsF '.local/bin' "$HOME/.bashrc" "$HOME/.bash_profile"
+          grep -q '^name: linux-remote-worker' "$HOME/.claude/skills/linux-remote-worker/SKILL.md"
+          bash -s -- --no-mcp < scripts/install-cli.sh | tee second-run.txt
+          grep -q 'already installed' second-run.txt
+          bash scripts/install-cli.sh --uninstall
+          test ! -e "$HOME/.local/bin/lrw"
+          test ! -e "$HOME/.local/share/lrw"
+          test ! -e "$HOME/.claude/skills/linux-remote-worker"
+
+  windows:
+    name: install-cli.ps1 (windows-latest)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: PowerShell 7, from the file
+        shell: pwsh
+        run: |
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'pwsh'
+          $env:CLAUDE_CONFIG_DIR = Join-Path $env:RUNNER_TEMP 'claude-pwsh'   # as if Claude Code were installed
+          New-Item -ItemType Directory -Force $env:CLAUDE_CONFIG_DIR | Out-Null
+          $skill = "$env:CLAUDE_CONFIG_DIR\skills\linux-remote-worker"
+          ./scripts/install-cli.ps1
+          & "$env:LOCALAPPDATA\Programs\lrw\lrw.exe" version --text
+          if ($LASTEXITCODE -ne 0) { throw 'lrw does not start' }
+          if (-not (Test-Path "$skill\SKILL.md")) { throw 'the skill was not added' }
+          ./scripts/install-cli.ps1 -NoMcp
+          ./scripts/install-cli.ps1 -Uninstall
+          if (Test-Path "$env:LOCALAPPDATA\Programs\lrw") { throw 'lrw is still there after uninstall' }
+          if (Test-Path $skill) { throw 'the skill is still there after uninstall' }
+
+      - name: Windows PowerShell 5.1, as the one-liner runs it
+        shell: powershell
+        run: |
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'winps'
+          $env:CLAUDE_CONFIG_DIR = Join-Path $env:RUNNER_TEMP 'claude-winps'
+          New-Item -ItemType Directory -Force $env:CLAUDE_CONFIG_DIR | Out-Null
+          $skill = "$env:CLAUDE_CONFIG_DIR\skills\linux-remote-worker"
+          & ([scriptblock]::Create((Get-Content -Raw scripts/install-cli.ps1))) -NoMcp
+          & "$env:LOCALAPPDATA\Programs\lrw\lrw.exe" version --text
+          if ($LASTEXITCODE -ne 0) { throw 'lrw does not start' }
+          if (-not (Test-Path "$skill\SKILL.md")) { throw 'the skill was not added' }
+          & ([scriptblock]::Create((Get-Content -Raw scripts/install-cli.ps1))) -Uninstall
+          if (Test-Path "$env:LOCALAPPDATA\Programs\lrw") { throw 'lrw is still there after uninstall' }
+          if (Test-Path $skill) { throw 'the skill is still there after uninstall' }

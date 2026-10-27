@@ -32,8 +32,29 @@ HTTPS is on for shop.example.com
 
 ## Install
 
-`lrw` runs on Windows, Linux and macOS (x64 and arm64). The setup script of the Claude skill installs,
-updates and removes it — PowerShell 7 on any OS, or Windows PowerShell 5.1:
+`lrw` runs on Windows, Linux and macOS (x64 and arm64) as one self-contained file — no .NET needed. One line
+installs it, nothing to clone, no administrator rights. With Claude Code installed it also registers the MCP
+server `lrw` and adds the skill (see [Using it from Claude](#using-it-from-claude-skill-and-mcp)). Run it again
+to update, or to connect lrw to a Claude Code installed later:
+
+```powershell
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/JustDimus/linux-remote-worker/main/scripts/install-cli.ps1 | iex
+```
+
+```bash
+# macOS, Ubuntu and other Linux (wget -qO- works in place of curl -fsSL)
+curl -fsSL https://raw.githubusercontent.com/JustDimus/linux-remote-worker/main/scripts/install-cli.sh | bash
+```
+
+Options: `--mcp-profile <name>` (the profile the MCP server connects to), `--no-mcp`, `--no-skill`,
+`--version <tag>` and `--uninstall` — piped as `| bash -s -- --mcp-profile prod`. On Windows they are
+`-McpProfile`, `-NoMcp`, `-NoSkill`, `-Version` and `-Uninstall`, passed as
+`& ([scriptblock]::Create((irm <the url above>))) -McpProfile prod`. Uninstalling keeps the saved servers, and
+removes the skill only if these scripts added it.
+
+The Windows script runs the setup script of the Claude skill, which also builds from source, reports status
+and works on any OS with PowerShell 7 (or Windows PowerShell 5.1):
 
 ```powershell
 $setup = '.claude/skills/linux-remote-worker/scripts/lrw-setup.ps1'
@@ -49,9 +70,10 @@ The program goes to `%LOCALAPPDATA%\Programs\lrw` (added to the user PATH) on Wi
 `~/.local/share/lrw`, linked as `~/.local/bin/lrw`, on Linux and macOS — no administrator rights.
 Release downloads are checked against the release's `SHA256SUMS.txt`.
 
-**Releases** are built by [`.github/workflows/release.yml`](../.github/workflows/release.yml) when a tag
-`v<version>` is pushed: self-contained single-file builds for win-x64, win-arm64, linux-x64,
-linux-arm64, osx-x64 and osx-arm64.
+**Releases** are built by [`.github/workflows/release.yml`](../.github/workflows/release.yml) (see
+*Releasing* in the README): self-contained single-file builds for win-x64, win-arm64, linux-x64,
+linux-arm64, osx-x64 and osx-arm64. [`install-scripts.yml`](../.github/workflows/install-scripts.yml)
+tries both install scripts on Ubuntu, macOS and Windows whenever they change.
 
 **Without installing:** `dotnet run --project LinuxRemoteWorker.Cli -- <arguments>`.
 
@@ -156,9 +178,10 @@ There are two ways to give an agent this tool; they can be combined.
 the server, reading results, never adding `--yes` without the user's agreement, and step-by-step
 workflows (deploy behind nginx with HTTPS, databases, logs, troubleshooting). It also carries the
 setup script, so an agent can install, update and remove lrw itself. It is active when Claude Code
-runs in this repository; to use it in every project, copy the folder to `~/.claude/skills/` (or
-install it from a skills pack — its `pack-hooks.json` makes the pack remove the program together with
-the skill).
+runs in this repository. The [install scripts](#install) add it for every project, to
+`~/.claude/skills/linux-remote-worker` from the same release as the program (a copy that is already there
+from elsewhere stays untouched); you can also copy the folder there yourself, or install it from a skills
+pack — its `pack-hooks.json` makes the pack remove the program together with the skill.
 
 **MCP server** — `lrw mcp` speaks the Model Context Protocol on stdio. Every command becomes a tool
 (`nginx sites create` → `nginx_sites_create`) with a JSON schema generated from the same catalog,

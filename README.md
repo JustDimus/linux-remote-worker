@@ -13,12 +13,48 @@ agents through a Claude skill and an MCP server. See [Command line & AI agents](
   <img alt="WPF" src="https://img.shields.io/badge/UI-WPF%20(MVVM)-0078D4">
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%2010%2B-blue">
   <img alt="SSH" src="https://img.shields.io/badge/transport-SSH%20key%20auth-6CCF97">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
 </p>
+
+## Quick install
+
+**Desktop app** (Windows 10+): download and run
+[LinuxRemoteWorker-win-Setup.exe](https://github.com/JustDimus/linux-remote-worker/releases/latest/download/LinuxRemoteWorker-win-Setup.exe).
+No administrator rights, no .NET, and it keeps itself up to date ([details](#install)). Uninstall it under
+*Settings → Apps*.
+
+**Command line `lrw`**, plus its MCP server and skill when Claude Code is installed: one line. Run it again to
+update, or to connect lrw to a Claude Code installed later.
+
+```powershell
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/JustDimus/linux-remote-worker/main/scripts/install-cli.ps1 | iex
+```
+
+```bash
+# macOS, Ubuntu and other Linux
+curl -fsSL https://raw.githubusercontent.com/JustDimus/linux-remote-worker/main/scripts/install-cli.sh | bash
+```
+
+To remove `lrw` with its PATH entry, MCP registration and skill (saved servers stay):
+
+```powershell
+# Windows (PowerShell)
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/JustDimus/linux-remote-worker/main/scripts/install-cli.ps1))) -Uninstall
+```
+
+```bash
+# macOS, Ubuntu and other Linux
+curl -fsSL https://raw.githubusercontent.com/JustDimus/linux-remote-worker/main/scripts/install-cli.sh | bash -s -- --uninstall
+```
+
+Options and other ways to install: [docs/cli.md](docs/cli.md#install).
 
 ---
 
 ## Table of contents
 
+- [Quick install](#quick-install)
 - [What it does](#what-it-does)
 - [Screens](#screens)
 - [Getting started](#getting-started)
@@ -110,8 +146,8 @@ rights), with shortcuts on the desktop and in the Start menu and an entry under 
 warn once, because the installer is not code-signed — *More info → Run anyway*.
 
 **It keeps itself up to date.** At every start and every few hours the app looks at the GitHub releases; a newer
-version is downloaded in the background, and the sidebar shows *⟳ Restart to update* — otherwise it is applied on
-the next start. Saved servers and logs (`%AppData%\LinuxRemoteWorker`) are never touched by updates or by
+version is downloaded in the background, and the sidebar shows *⟳ Restart to update* — otherwise it is installed
+when you close the app, so the next start is the new version. Saved servers and logs (`%AppData%\LinuxRemoteWorker`) are never touched by updates or by
 uninstalling.
 
 - `LinuxRemoteWorker.exe --no-update` switches the checks off for that run (and does not apply a downloaded update).
@@ -435,7 +471,9 @@ the same saved servers, and it keeps the same safety rules (nginx changes tested
 SSH never firewalled off, destructive commands refused without `--yes`).
 
 ```powershell
-pwsh -File .claude/skills/linux-remote-worker/scripts/lrw-setup.ps1 install   # release build → PATH
+# Install (or update) lrw and register it in Claude Code; macOS / Linux: scripts/install-cli.sh, see docs/cli.md
+irm https://raw.githubusercontent.com/JustDimus/linux-remote-worker/main/scripts/install-cli.ps1 | iex
+
 lrw profiles add prod --host 203.0.113.10 --key C:\keys\id_ed25519 --make-default
 lrw connection test
 lrw services deploy --repo shop --csproj src/Shop.Api/Shop.Api.csproj --name shop-api --urls http://127.0.0.1:5000
@@ -450,8 +488,8 @@ the form agents need. For Claude:
 - **Skill** — [`.claude/skills/linux-remote-worker`](.claude/skills/linux-remote-worker/SKILL.md) teaches
   Claude the workflows and the safety rules (never confirm a destructive action on its own), and
   carries `scripts/lrw-setup.ps1`, which installs (release download or build from source), updates and
-  removes lrw on Windows, Linux and macOS.
-- **MCP server** — `lrw mcp` exposes every command as a tool:
+  removes lrw on Windows, Linux and macOS. The install scripts put it into `~/.claude/skills/`.
+- **MCP server** — `lrw mcp` exposes every command as a tool. The install scripts register it; by hand:
   `claude mcp add --scope user lrw -- lrw mcp --profile prod`.
 
 Full documentation: [docs/cli.md](docs/cli.md).
@@ -501,7 +539,7 @@ A damaged file will not stop the app: it is logged as an error and the list simp
 *Actions → **Release** → Run workflow* (from `main`), choose **patch**, **minor** or **major**. The workflow takes
 the version from `Directory.Build.props` (the one version of the app, `lrw` and the libraries), runs the unit
 tests on Linux and Windows, builds `lrw` for six platforms and the app installer, signs the update — and only when
-all of that worked commits the new version (`Release vX.Y.Z`), tags it and publishes the release. If anything
+all of that worked commits the new version (`Release vX.Y.Z`, in your name), tags it and publishes the release. If anything
 fails, the repository stays as it was. Pushing a tag `vX.Y.Z` by hand still works and releases that exact version.
 
 **Once, before the first release with the app:** create the update signing key on your own computer —
@@ -581,6 +619,8 @@ LinuxRemoteWorker.Tests/           xUnit tests: git sources and releases, genera
 .claude/skills/linux-remote-worker/  Claude skill for operating servers with lrw, with its installer
 .github/workflows/release.yml      Release: bump version, test, build lrw + the app installer, sign the update, publish
 .github/workflows/tests.yml        Unit tests on every push and pull request (Linux and Windows)
+.github/workflows/install-scripts.yml  Tries the install scripts on Ubuntu, macOS and Windows when they change
+scripts/                           One-line lrw install: install-cli.ps1 (Windows), install-cli.sh (macOS, Linux)
 tools/                             Release helpers: next-version.sh, sign-update.sh, new-update-signing-key.ps1
 ```
 
@@ -694,4 +734,4 @@ That file is designed to answer this question.
 
 ## License
 
-Not yet specified — add a `LICENSE` file before publishing.
+[MIT](LICENSE): use, change and share it freely, commercially too; keep the copyright notice. No warranty.

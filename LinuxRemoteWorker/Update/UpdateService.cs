@@ -1,6 +1,7 @@
 using System.IO;
 using System.Net.Http;
 using System.Reflection;
+using System.Windows;
 using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -13,8 +14,8 @@ namespace LinuxRemoteWorker.Update;
 /// <summary>
 /// Keeps the installed app current: checks the GitHub releases at start and every few hours, downloads a newer
 /// version once its signed manifest checks out against the public key built into the app, and offers a restart -
-/// otherwise the update is applied on the next start. Off with --no-update, and in builds not installed by the
-/// release's Setup.exe (development runs).
+/// otherwise the update is applied when the app closes (and, should that not happen, on the next start). Off with
+/// --no-update, and in builds not installed by the release's Setup.exe (development runs).
 /// </summary>
 public sealed partial class UpdateService : ObservableObject
 {
@@ -29,6 +30,7 @@ public sealed partial class UpdateService : ObservableObject
     private readonly DispatcherTimer _timer = new() { Interval = CheckEvery };
     private VelopackAsset? _ready;
     private bool _checking;
+    private bool _restarting;
 
     [ObservableProperty] private string _statusText = string.Empty;
 
@@ -80,6 +82,7 @@ public sealed partial class UpdateService : ObservableObject
         if (_manager == null) return;
         _timer.Tick += async (_, _) => await CheckAsync();
         _timer.Start();
+        Application.Current.Exit += (_, _) => ApplyOnExit();
         _ = CheckAsync();
     }
 
@@ -111,8 +114,8 @@ public sealed partial class UpdateService : ObservableObject
             await _manager.DownloadUpdatesAsync(update, percent => StatusText = $"Downloading {version}… {percent}%");
             _ready = target;
             RestartAvailable = true;
-            StatusText = $"Version {version} is ready";
-            AppLog.Info($"Update {version} downloaded and verified; applied on restart");
+            StatusText = $"Version {version} is ready - installed when you close the app";
+            AppLog.Info($"Update {version} downloaded and verified; applied on restart or when the app closes");
         }
         catch (Exception ex)
         {
@@ -130,7 +133,24 @@ public sealed partial class UpdateService : ObservableObject
     {
         if (_manager == null || _ready == null) return;
         AppLog.Info($"Restarting to apply update {_ready.Version}");
+        _restarting = true;
         _manager.ApplyUpdatesAndRestart(_ready, Environment.GetCommandLineArgs().Skip(1).ToArray());
+    }
+
+    // The updater waits for this process to end, then applies the update without a window or a restart - the next
+    // start is already the new version
+    private void ApplyOnExit()
+    {
+        if (_manager == null || _ready == null || _restarting) return;
+        try
+        {
+            AppLog.Info($"Applying update {_ready.Version} after the app closes");
+            _manager.WaitExitThenApplyUpdates(_ready, silent: true, restart: false);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn($"Could not hand update {_ready.Version} to the updater ({ex.Message}); it is applied on the next start");
+        }
     }
 
     // The manifest is a separate release asset; Velopack then checks the downloaded package against the signed hash
