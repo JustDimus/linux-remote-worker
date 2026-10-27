@@ -16,9 +16,9 @@ Use whichever is at hand; this guide shows CLI syntax.
 
 ## Before the first command
 
-1. Check it is installed: `lrw version`. If it is not found, install it with this skill's setup script
-   (see [Installing, updating and removing lrw](#installing-updating-and-removing-lrw)) - ask the user
-   first whether to download the release build or build from source, and whether to register the MCP server.
+1. Check it is installed: `lrw version`. If it is not found, offer the install command for this system
+   (see [Installing, updating and removing lrw](#installing-updating-and-removing-lrw)) and run it once
+   the user agrees.
 2. Pick the server. `lrw profiles list --json` shows saved servers and the default. Pass
    `--profile <name>` on every command unless the user named a default (`lrw profiles use <name>`).
    No profile yet: `lrw profiles add <name> --host <ip> --key <private key path>` (ask the user for
@@ -210,37 +210,44 @@ lrw applog read --filter ERROR --json                                 # this too
 
 ## Installing, updating and removing lrw
 
-`scripts/lrw-setup.ps1` in this skill's folder (`~/.claude/skills/linux-remote-worker/` when installed
-for the user, `.claude/skills/linux-remote-worker/` inside the Linux Remote Worker repository) manages
-the program. It runs on PowerShell 7 (`pwsh -File …`) on every OS, and on Windows PowerShell 5.1
-(`powershell -ExecutionPolicy Bypass -File …`). Add `-Json` to get a JSON result on stdout.
+Two scripts of the Linux Remote Worker repository manage the program and this skill: one for Windows
+(Windows PowerShell or PowerShell 7) and one for macOS and Linux (bash), each native to its system and
+doing the same. They download the release build for the OS and CPU, check it against the release's
+SHA256SUMS.txt, put it on PATH and, with Claude Code installed, register the MCP server `lrw` and add
+this skill from the same release. No administrator rights, no .NET.
 
 ```
-lrw-setup.ps1 status                          # installed version, source, on PATH?, update available?
-lrw-setup.ps1 install                         # newest release build for this OS and CPU (no .NET needed)
-lrw-setup.ps1 install -Source build           # compile from GitHub (needs git + .NET 8 SDK)
-lrw-setup.ps1 install -Source build -Repo <folder with the sources>   # compile a local checkout
-lrw-setup.ps1 install -RegisterMcp [-McpProfile <name>]               # also: claude mcp add lrw
-lrw-setup.ps1 update                          # newest version from the same source as before
-lrw-setup.ps1 uninstall [-Purge]              # remove program, PATH entry/link, MCP registration
+# Windows (PowerShell)
+$lrw = 'https://raw.githubusercontent.com/JustDimus/linux-remote-worker/main/scripts/install-cli.ps1'
+irm $lrw | iex                                      # install, or update when installed
+& ([scriptblock]::Create((irm $lrw))) -Status        # installed version, newest release, PATH, MCP, skill
+& ([scriptblock]::Create((irm $lrw))) -Uninstall     # remove program, PATH entry, MCP registration, skill
+
+# macOS, Linux (bash)
+lrw_sh=https://raw.githubusercontent.com/JustDimus/linux-remote-worker/main/scripts/install-cli.sh
+curl -fsSL "$lrw_sh" | bash                          # install, or update when installed (wget -qO- works too)
+curl -fsSL "$lrw_sh" | bash -s -- --status
+curl -fsSL "$lrw_sh" | bash -s -- --uninstall
 ```
+
+Options, the same in both: `-Version`/`--version <tag>`, `-McpProfile`/`--mcp-profile <name>`,
+`-NoMcp`/`--no-mcp`, `-NoSkill`/`--no-skill`, `-NoPath`/`--no-path`, `-Force`/`--force`.
 
 - Program location: `%LOCALAPPDATA%\Programs\lrw` (added to the user PATH) on Windows,
-  `~/.local/share/lrw` linked as `~/.local/bin/lrw` on Linux and macOS. No administrator rights.
-- Release downloads are verified against the release's SHA256SUMS.txt. If the repository has no
-  release yet, `install` says so - offer `-Source build` instead.
+  `~/.local/share/lrw` linked as `~/.local/bin/lrw` on Linux and macOS.
 - A PATH change reaches only terminals started afterwards. In the current session call the program by
-  the `exe` path that `install` / `status` print.
+  the path the script prints.
+- The MCP registration needs the `claude` command on PATH (Claude Code used only inside an editor may
+  not have it); without it the script prints the `claude mcp add` command to run.
+- A skill folder that was not added by these scripts is left alone, also on uninstall.
 - **Saved servers stay untouched.** `profiles.json` (its path is `data.profilesFile` in
   `lrw profiles list --json`) is shared with the desktop app. Uninstalling, reinstalling or updating lrw
   or this skill never deletes, edits, moves or resets it, and never runs `profiles remove` as part of a
   clean-up. Only a separate, explicit request from the user to remove profiles allows that. When
   reporting an uninstall, say that the saved servers were kept.
-- `uninstall -Purge` also deletes the CLI's own settings (`cli.json`) and its `cli-` / `mcp-` logs;
-  `profiles.json` stays. On Windows, uninstall fails while lrw is running (an MCP server of an open
-  Claude session) - ask the user to close it.
-- When this skill was installed from a skills pack, uninstalling the skill through the pack runs
-  `lrw-setup.ps1 uninstall` first (`pack-hooks.json`), so the program goes with it.
+- Updating works while lrw runs; open Claude sessions keep the old MCP server until they restart. On
+  Windows, uninstalling refuses while lrw runs (an MCP server of an open Claude session, this one
+  included) - ask the user to close Claude Code and run the uninstall command themselves.
 
 ## More
 

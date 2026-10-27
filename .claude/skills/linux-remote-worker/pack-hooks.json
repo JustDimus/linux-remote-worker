@@ -1,6 +1,0 @@
-{
-  "beforeUninstall": {
-    "script": "scripts/lrw-setup.ps1",
-    "args": ["uninstall"]
-  }
-}

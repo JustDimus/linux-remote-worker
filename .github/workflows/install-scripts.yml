@@ -1,8 +1,8 @@
 # Installs lrw and the Claude Code skill from the newest release with scripts/install-cli.sh (Ubuntu, macOS) and
 # scripts/install-cli.ps1 (Windows: PowerShell 7 from the file, Windows PowerShell 5.1 the way the one-liner runs
-# it), runs lrw, runs the script again (nothing to download) and uninstalls. Each job installs into throwaway
-# folders; Claude Code itself is not there, so the MCP registration is only reported. Runs only when the scripts
-# change, or by hand.
+# it), runs lrw, checks the status, runs the script again (nothing to download) and uninstalls. Each job installs
+# into throwaway folders; Claude Code itself is not there, so the MCP registration is only reported. Runs only when
+# the scripts or the skill change, or by hand.
 
 name: Install scripts
 
@@ -10,7 +10,7 @@ on:
   push:
     paths:
       - scripts/**
-      - .claude/skills/linux-remote-worker/scripts/lrw-setup.ps1
+      - skill/**
       - .github/workflows/install-scripts.yml
   workflow_dispatch:
 
@@ -39,6 +39,8 @@ jobs:
           "$HOME/.local/bin/lrw" help >/dev/null
           grep -qsF '.local/bin' "$HOME/.bashrc" "$HOME/.bash_profile"
           grep -q '^name: linux-remote-worker' "$HOME/.claude/skills/linux-remote-worker/SKILL.md"
+          bash scripts/install-cli.sh --status | tee status.txt
+          grep -q 'up to date' status.txt
           bash -s -- --no-mcp < scripts/install-cli.sh | tee second-run.txt
           grep -q 'already installed' second-run.txt
           bash scripts/install-cli.sh --uninstall
@@ -63,6 +65,9 @@ jobs:
           & "$env:LOCALAPPDATA\Programs\lrw\lrw.exe" version --text
           if ($LASTEXITCODE -ne 0) { throw 'lrw does not start' }
           if (-not (Test-Path "$skill\SKILL.md")) { throw 'the skill was not added' }
+          $status = ./scripts/install-cli.ps1 -Status 6>&1 | Out-String
+          $status
+          if ($status -notmatch 'up to date') { throw 'status does not report the installed version as up to date' }
           ./scripts/install-cli.ps1 -NoMcp
           ./scripts/install-cli.ps1 -Uninstall
           if (Test-Path "$env:LOCALAPPDATA\Programs\lrw") { throw 'lrw is still there after uninstall' }

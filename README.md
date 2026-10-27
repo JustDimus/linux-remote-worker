@@ -485,10 +485,9 @@ lrw logs journal shop-api --since "1 hour ago"
 On a terminal it prints tables; piped, it prints one JSON result per command with stable exit codes —
 the form agents need. For Claude:
 
-- **Skill** — [`.claude/skills/linux-remote-worker`](.claude/skills/linux-remote-worker/SKILL.md) teaches
-  Claude the workflows and the safety rules (never confirm a destructive action on its own), and
-  carries `scripts/lrw-setup.ps1`, which installs (release download or build from source), updates and
-  removes lrw on Windows, Linux and macOS. The install scripts put it into `~/.claude/skills/`.
+- **Skill** — [`skill/`](skill/SKILL.md) teaches Claude the workflows and the safety rules (never confirm
+  a destructive action on its own) and how to install, update and remove lrw. The install scripts put it
+  into `~/.claude/skills/`.
 - **MCP server** — `lrw mcp` exposes every command as a tool. The install scripts register it; by hand:
   `claude mcp add --scope user lrw -- lrw mcp --profile prod`.
 
@@ -616,11 +615,11 @@ LinuxRemoteWorker.Cli/             lrw.exe — command line and MCP server (see 
 ├── Mcp/McpServer.cs               MCP over stdio, generated from the same catalog
 └── Commands/                      One class per command group, thin adapters over the Core services
 LinuxRemoteWorker.Tests/           xUnit tests: git sources and releases, generated scripts, parsing, ports, CLI options
-.claude/skills/linux-remote-worker/  Claude skill for operating servers with lrw, with its installer
+skill/                             Claude skill for operating servers with lrw (SKILL.md, reference.md)
 .github/workflows/release.yml      Release: bump version, test, build lrw + the app installer, sign the update, publish
 .github/workflows/tests.yml        Unit tests on every push and pull request (Linux and Windows)
 .github/workflows/install-scripts.yml  Tries the install scripts on Ubuntu, macOS and Windows when they change
-scripts/                           One-line lrw install: install-cli.ps1 (Windows), install-cli.sh (macOS, Linux)
+scripts/                           Install, update, status and removal of lrw + MCP + skill: install-cli.ps1 (Windows), install-cli.sh (macOS, Linux)
 tools/                             Release helpers: next-version.sh, sign-update.sh, new-update-signing-key.ps1
 ```
 

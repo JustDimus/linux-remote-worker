@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
-Installs or updates lrw, the command line of Linux Remote Worker, on Windows. When Claude Code is installed it also
-registers lrw as the MCP server "lrw" and adds the linux-remote-worker skill.
+Installs, updates, checks or removes lrw - the command line of Linux Remote Worker - on Windows, together with its
+MCP server and skill for Claude Code.
 
 .DESCRIPTION
 One line in PowerShell - no clone, no administrator rights, no .NET:
@@ -10,124 +10,278 @@ One line in PowerShell - no clone, no administrator rights, no .NET:
 
 With options:
 
-    & ([scriptblock]::Create((irm https://raw.githubusercontent.com/JustDimus/linux-remote-worker/main/scripts/install-cli.ps1))) -McpProfile prod
+    & ([scriptblock]::Create((irm https://raw.githubusercontent.com/JustDimus/linux-remote-worker/main/scripts/install-cli.ps1))) -Status
 
-Run it again to update - or, after installing Claude Code, to connect lrw to it. The program is handled by the
-skill's lrw-setup.ps1 - from this checkout, or downloaded: the newest release build for this CPU, checked against
-SHA256SUMS.txt, goes to %LOCALAPPDATA%\Programs\lrw and onto the user PATH, and `claude mcp add` registers the MCP
-server; lrw-setup.ps1 status, update and uninstall work on the result. The skill comes from the same release and
-goes to %USERPROFILE%\.claude\skills\linux-remote-worker; a skill put there some other way (a skills pack) is left
-alone. Windows PowerShell 5.1 or PowerShell 7.
+scripts/install-cli.sh does the same on macOS and Linux:
+- lrw: the release build for this CPU, checked against the release's SHA256SUMS.txt, goes to
+  %LOCALAPPDATA%\Programs\lrw and onto the user PATH. Run it again to update; a running lrw (an MCP server of an
+  open Claude session) is renamed out of the way and keeps working until it restarts.
+- Claude Code, when installed: lrw is registered as the MCP server "lrw" (this needs the claude command on PATH),
+  and the linux-remote-worker skill of the same release goes to %USERPROFILE%\.claude\skills (CLAUDE_CONFIG_DIR is
+  honoured). A skill put there some other way is left alone.
+- -Uninstall removes all of that; saved servers and logs stay.
+Windows PowerShell 5.1 or PowerShell 7.
 #>
 param(
+    # Show what is installed and whether an update exists
+    [switch]$Status,
+    # Remove lrw, its PATH entry, its MCP registration and the skill (saved servers and logs stay)
+    [switch]$Uninstall,
+    # A release such as v0.1.0 instead of the newest
+    [string]$Version = '',
     # Saved lrw profile the MCP server connects to by default
-    [string]$McpProfile,
+    [string]$McpProfile = '',
     # Do not register the MCP server
     [switch]$NoMcp,
     # Do not add the skill
     [switch]$NoSkill,
     # Leave PATH alone
     [switch]$NoPath,
-    # A release such as v0.1.0 instead of the newest
-    [string]$Version = 'latest',
-    # Remove lrw, its PATH entry, its MCP registration and the skill (saved servers and logs stay)
-    [switch]$Uninstall
+    # Download again even when that version is installed
+    [switch]$Force
 )
 
-# A child scope: run through iex, nothing here leaks into the caller's session, and errors never close it
+# A child scope: run through iex, nothing here leaks into the caller's session, and an error never closes it
 & {
     $ErrorActionPreference = 'Stop'
+    $ProgressPreference = 'SilentlyContinue'   # Windows PowerShell draws download progress very slowly
     if ($PSVersionTable.PSEdition -eq 'Desktop') {
         [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
     }
 
-    $setup = if ($PSScriptRoot) { Join-Path $PSScriptRoot '..\.claude\skills\linux-remote-worker\scripts\lrw-setup.ps1' }
-    $download = $null
-    if (-not $setup -or -not (Test-Path -LiteralPath $setup)) {
-        $download = Join-Path ([IO.Path]::GetTempPath()) "lrw-setup-$([guid]::NewGuid().ToString('N')).ps1"
-        Invoke-WebRequest -UseBasicParsing -OutFile $download `
-            -Uri 'https://raw.githubusercontent.com/JustDimus/linux-remote-worker/main/.claude/skills/linux-remote-worker/scripts/lrw-setup.ps1'
-        $setup = $download
-    }
-
+    $repo = 'JustDimus/linux-remote-worker'
+    $installDir = Join-Path $env:LOCALAPPDATA 'Programs\lrw'
+    $exe = Join-Path $installDir 'lrw.exe'
     $claudeDir = if ($env:CLAUDE_CONFIG_DIR) { $env:CLAUDE_CONFIG_DIR } else { Join-Path $HOME '.claude' }
-    # The claude command registers the MCP server; Claude Code used only from an editor may not have it on PATH
-    $claudeCli = [bool](Get-Command claude -ErrorAction SilentlyContinue)
-    $claudeInstalled = $claudeCli -or (Test-Path -LiteralPath $claudeDir)
-
-    $state = Join-Path $env:LOCALAPPDATA 'lrw\install.json'
-    $command = if ($Uninstall) { 'uninstall' } elseif (Test-Path -LiteralPath $state) { 'update' } else { 'install' }
-    $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $setup, $command)
-    if (-not $Uninstall) {
-        $arguments += @('-Version', $Version)
-        if ($NoPath) { $arguments += '-NoPath' }
-        if (-not $NoMcp -and $claudeCli) {
-            $arguments += '-RegisterMcp'
-            if ($McpProfile) { $arguments += @('-McpProfile', $McpProfile) }
-        }
-    }
-
-    # In its own process: lrw-setup.ps1 ends with exit, and the process gets its own execution policy
-    $pwsh = Get-Command pwsh -ErrorAction SilentlyContinue
-    $shell = if ($pwsh) { $pwsh.Source } else { Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe' }
-    try {
-        & $shell @arguments
-        if ($LASTEXITCODE -ne 0) { throw "lrw-setup.ps1 $command failed (exit $LASTEXITCODE) - see above." }
-    }
-    finally {
-        if ($download) { Remove-Item -LiteralPath $download -Force -ErrorAction SilentlyContinue }
-    }
-
     $skillDir = Join-Path $claudeDir 'skills\linux-remote-worker'
-    $mark = '.installed-by-lrw-install-cli'
-    if ($Uninstall) {
-        if (Test-Path -LiteralPath (Join-Path $skillDir $mark)) {
-            Remove-Item -LiteralPath $skillDir -Recurse -Force
-            Write-Host "Removed the Claude Code skill $skillDir."
+    $skillMark = '.installed-by-lrw-install-cli'
+    $headers = @{ 'User-Agent' = 'lrw-install-cli' }
+
+    # Output and exit code of a program, without its stderr turning into PowerShell errors
+    function Invoke-Tool([string]$Path, [string[]]$Arguments) {
+        $previous = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+            $output = & $Path @Arguments 2>&1 | ForEach-Object { "$_" }
+            [pscustomobject]@{ ExitCode = $LASTEXITCODE; Output = ($output -join "`n").Trim() }
         }
-        return
+        finally { $ErrorActionPreference = $previous }
     }
 
-    # New terminals see the new PATH; this one gets it here, so lrw works right away
-    $installed = Get-Content -LiteralPath $state -Raw | ConvertFrom-Json
-    if (-not $NoPath -and $installed.installDir -and (@($env:Path -split ';') -notcontains $installed.installDir)) {
-        $env:Path = "$env:Path;$($installed.installDir)"
+    function Get-Claude {
+        $command = Get-Command claude -ErrorAction SilentlyContinue
+        if ($command) { $command.Source }
     }
 
-    if (-not $claudeInstalled) {
-        if (-not ($NoMcp -and $NoSkill)) {
-            Write-Host 'Claude Code is not installed - after installing it, run this again to connect lrw (MCP server and skill).'
-        }
-        return
+    function Get-InstalledVersion {
+        if (-not (Test-Path -LiteralPath $exe)) { return $null }
+        $result = Invoke-Tool $exe @('version', '--text')
+        if ($result.ExitCode -eq 0) { $result.Output }
     }
-    if (-not $NoMcp -and -not $claudeCli) {
-        Write-Host "The claude command is not on PATH here, so this run did not register the MCP server. If Claude Code" `
-            "does not list lrw yet, run where claude works: claude mcp add --scope user lrw -- `"$($installed.exe)`" mcp"
+
+    function Get-LatestTag {
+        try { [string](Invoke-RestMethod -UseBasicParsing -Headers $headers -Uri "https://api.github.com/repos/$repo/releases/latest").tag_name }
+        catch { throw "Could not ask GitHub for the newest release of ${repo}: $($_.Exception.Message)" }
+    }
+
+    function Save-Url([string]$Uri, [string]$Path) {
+        try { Invoke-WebRequest -UseBasicParsing -Headers $headers -Uri $Uri -OutFile $Path }
+        catch { throw "Download failed: $Uri ($($_.Exception.Message))" }
+    }
+
+    # The user PATH is read and written raw, so entries like %USERPROFILE%\bin stay unexpanded
+    function Get-UserPath {
+        $key = Get-Item -LiteralPath 'HKCU:\Environment'
+        $kind = if ($key.GetValueNames() -contains 'Path') { $key.GetValueKind('Path') } else { [Microsoft.Win32.RegistryValueKind]::ExpandString }
+        $value = [string]$key.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+        [pscustomobject]@{ Entries = @($value -split ';' | Where-Object { $_ }); Kind = $kind }
+    }
+
+    function Set-UserPath([string[]]$Entries, $Kind) {
+        Set-ItemProperty -LiteralPath 'HKCU:\Environment' -Name 'Path' -Value ($Entries -join ';') -Type $Kind
+        # Setting a user variable broadcasts WM_SETTINGCHANGE, so terminals started from now on see the new PATH
+        [Environment]::SetEnvironmentVariable('LRW_INSTALL_REFRESH', '1', 'User')
+        [Environment]::SetEnvironmentVariable('LRW_INSTALL_REFRESH', $null, 'User')
+    }
+
+    function Test-OurEntry([string]$Entry) {
+        [Environment]::ExpandEnvironmentVariables($Entry).TrimEnd('\') -eq $installDir.TrimEnd('\')
+    }
+
+    function Test-McpPointsHere([string]$Claude) {
+        (Invoke-Tool $Claude @('mcp', 'get', 'lrw')).Output -match [regex]::Escape($installDir)
+    }
+
+    function Show-Status {
+        $current = Get-InstalledVersion
+        Write-Host "lrw:    $(if ($current) { "$current ($exe)" } else { 'not installed' })"
+        try {
+            $latest = Get-LatestTag
+            $verdict = if (-not $current) { 'run this script to install it' } elseif ("v$current" -eq $latest) { 'up to date' } else { 'update available - run this script again' }
+            Write-Host "newest: $latest ($verdict)"
+        }
+        catch { Write-Host "newest: unknown ($($_.Exception.Message))" }
+        $onPath = @((Get-UserPath).Entries | Where-Object { Test-OurEntry $_ }).Count -gt 0
+        Write-Host "PATH:   $(if ($onPath) { "yes ($installDir)" } else { 'no' })"
+        $claude = Get-Claude
+        $mcp = if ($claude) { if (Test-McpPointsHere $claude) { 'registered' } else { 'not registered' } }
+               elseif (Test-Path -LiteralPath $claudeDir) { 'unknown (the claude command is not on PATH)' }
+               else { 'Claude Code is not installed' }
+        Write-Host "MCP:    $mcp"
+        $skill = if (Test-Path -LiteralPath (Join-Path $skillDir $skillMark)) { "installed ($skillDir)" }
+                 elseif (Test-Path -LiteralPath $skillDir) { "another copy, left alone ($skillDir)" }
+                 else { 'not installed' }
+        Write-Host "skill:  $skill"
+    }
+
+    # Returns the release tag that is installed now
+    function Install-Lrw {
+        $arch = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
+        if ($arch -notin 'x64', 'arm64') { throw "Unsupported CPU '$arch': lrw is built for x64 and arm64." }
+        $tag = if ($Version) { $Version } else { Get-LatestTag }
+        if (-not $tag.StartsWith('v')) { $tag = "v$tag" }
+
+        $current = Get-InstalledVersion
+        if ($current -and "v$current" -eq $tag -and -not $Force) {
+            Write-Host "lrw $current is already installed - nothing to download."
+            return $tag
+        }
+
+        $asset = "lrw-win-$arch.zip"
+        $work = Join-Path ([IO.Path]::GetTempPath()) "lrw-install-$([guid]::NewGuid().ToString('N'))"
+        New-Item -ItemType Directory -Path $work | Out-Null
+        try {
+            Write-Host "Downloading lrw $tag for win-$arch..."
+            Save-Url "https://github.com/$repo/releases/download/$tag/$asset" (Join-Path $work $asset)
+            Save-Url "https://github.com/$repo/releases/download/$tag/SHA256SUMS.txt" (Join-Path $work 'SHA256SUMS.txt')
+            $expected = foreach ($line in Get-Content -LiteralPath (Join-Path $work 'SHA256SUMS.txt')) {
+                if ($line -match '^([0-9a-fA-F]{64})\s+\*?(.+)$' -and $Matches[2].Trim() -eq $asset) { $Matches[1] }
+            }
+            if (-not $expected) { throw "$asset is not listed in SHA256SUMS.txt of $tag." }
+            if ((Get-FileHash -LiteralPath (Join-Path $work $asset) -Algorithm SHA256).Hash -ne ([string]$expected).ToUpperInvariant()) {
+                throw "$asset does not match SHA256SUMS.txt - nothing was installed."
+            }
+            Expand-Archive -LiteralPath (Join-Path $work $asset) -DestinationPath (Join-Path $work 'lrw')
+            if (-not (Test-Path -LiteralPath (Join-Path $work 'lrw\lrw.exe'))) { throw "$asset does not contain lrw.exe." }
+
+            New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+            Get-ChildItem -LiteralPath $installDir -Filter '*.old' -File | Remove-Item -Force -ErrorAction SilentlyContinue
+            # A running lrw (an MCP server of an open Claude session) locks lrw.exe, but a locked file can be renamed
+            if (Test-Path -LiteralPath $exe) { Move-Item -LiteralPath $exe -Destination "$exe.$(Get-Date -Format 'yyyyMMddHHmmss').old" }
+            Copy-Item -Path (Join-Path $work 'lrw\*') -Destination $installDir -Recurse -Force
+        }
+        finally { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue }
+
+        $current = Get-InstalledVersion
+        if (-not $current) { throw "The installed $exe does not start." }
+        Write-Host "lrw $current installed in $installDir."
+        return $tag
+    }
+
+    function Add-ToPath {
+        $path = Get-UserPath
+        if (-not ($path.Entries | Where-Object { Test-OurEntry $_ })) {
+            Set-UserPath (@($path.Entries) + $installDir) $path.Kind
+            Write-Host "Added $installDir to your user PATH."
+        }
+        # New terminals see the new PATH; this one gets it here, so lrw works right away
+        if (@($env:Path -split ';') -notcontains $installDir) { $env:Path = "$env:Path;$installDir" }
+    }
+
+    function Register-Mcp {
+        $manual = "claude mcp add --scope user lrw -- `"$exe`" mcp$(if ($McpProfile) { " --profile $McpProfile" })"
+        $claude = Get-Claude
+        if (-not $claude) {
+            Write-Host "The claude command is not on PATH - register the MCP server with: $manual"
+            return
+        }
+        Invoke-Tool $claude @('mcp', 'remove', 'lrw', '--scope', 'user') | Out-Null
+        $arguments = @('mcp', 'add', '--scope', 'user', 'lrw', '--', $exe, 'mcp')
+        if ($McpProfile) { $arguments += @('--profile', $McpProfile) }
+        $result = Invoke-Tool $claude $arguments
+        if ($result.ExitCode -eq 0) { Write-Host "Registered the MCP server 'lrw' in Claude Code (user scope)." }
+        else { Write-Warning "claude mcp add failed - run it by hand: $manual`n$($result.Output)" }
     }
 
     # The skill's files from the release lrw came from, so its instructions match the program
-    if ($NoSkill) { return }
-    if ((Test-Path -LiteralPath $skillDir) -and -not (Test-Path -LiteralPath (Join-Path $skillDir $mark))) {
-        Write-Host "A linux-remote-worker skill is already in $skillDir (not from this script) - left alone."
-        return
-    }
-    $ref = if ($installed.tag) { $installed.tag } else { 'main' }
-    $new = "$skillDir.new-$([guid]::NewGuid().ToString('N'))"   # next to it, so the final move is a rename
-    try {
-        foreach ($file in 'SKILL.md', 'reference.md', 'scripts/lrw-setup.ps1') {
-            $target = Join-Path $new $file
-            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $target) | Out-Null
-            Invoke-WebRequest -UseBasicParsing -OutFile $target `
-                -Uri "https://raw.githubusercontent.com/JustDimus/linux-remote-worker/$ref/.claude/skills/linux-remote-worker/$file"
+    function Install-Skill([string]$Tag) {
+        if ((Test-Path -LiteralPath $skillDir) -and -not (Test-Path -LiteralPath (Join-Path $skillDir $skillMark))) {
+            Write-Host "A linux-remote-worker skill is already in $skillDir (not from this script) - left alone."
+            return
         }
-        if (-not (Select-String -LiteralPath (Join-Path $new 'SKILL.md') -Pattern '^name: linux-remote-worker' -Quiet)) {
-            throw 'the downloaded SKILL.md is not the lrw skill'
+        $new = "$skillDir.new-$([guid]::NewGuid().ToString('N'))"   # next to it, so the final move is a rename
+        try {
+            New-Item -ItemType Directory -Force -Path $new | Out-Null
+            foreach ($file in 'SKILL.md', 'reference.md') {
+                # Releases up to v0.1.1 kept the skill in .claude/skills/linux-remote-worker
+                $saved = $false
+                foreach ($folder in 'skill', '.claude/skills/linux-remote-worker') {
+                    try { Save-Url "https://raw.githubusercontent.com/$repo/$Tag/$folder/$file" (Join-Path $new $file); $saved = $true; break }
+                    catch { }
+                }
+                if (-not $saved) { throw "could not download the skill's $file of $Tag" }
+            }
+            if (-not (Select-String -LiteralPath (Join-Path $new 'SKILL.md') -Pattern '^name: linux-remote-worker' -Quiet)) {
+                throw 'the downloaded SKILL.md is not the lrw skill'
+            }
+            Set-Content -LiteralPath (Join-Path $new $skillMark) -Value "Installed by scripts/install-cli.ps1 from $Tag; install-cli.ps1 -Uninstall removes it."
+            if (Test-Path -LiteralPath $skillDir) { Remove-Item -LiteralPath $skillDir -Recurse -Force }
+            Move-Item -LiteralPath $new -Destination $skillDir
+            Write-Host "Added the Claude Code skill: $skillDir."
         }
-        Set-Content -LiteralPath (Join-Path $new $mark) -Value "Installed by scripts/install-cli.ps1 from $ref; install-cli.ps1 -Uninstall removes it."
-        if (Test-Path -LiteralPath $skillDir) { Remove-Item -LiteralPath $skillDir -Recurse -Force }
-        Move-Item -LiteralPath $new -Destination $skillDir
-        Write-Host "Added the Claude Code skill: $skillDir."
+        catch { Write-Warning "The skill was not added: $($_.Exception.Message)" }
+        finally { Remove-Item -LiteralPath $new -Recurse -Force -ErrorAction SilentlyContinue }
     }
-    catch { Write-Warning "The skill was not added: $($_.Exception.Message)" }
-    finally { Remove-Item -LiteralPath $new -Recurse -Force -ErrorAction SilentlyContinue }
+
+    function Uninstall-Lrw {
+        # Nothing is changed while lrw.exe is locked: it could not be deleted at the end
+        $running = @(Get-Process -Name lrw -ErrorAction SilentlyContinue | Where-Object { $_.Path -and $_.Path.StartsWith($installDir, [StringComparison]::OrdinalIgnoreCase) })
+        if ($running.Count -gt 0) {
+            throw "lrw is running ($($running.Count) process(es), usually MCP servers of open Claude Code sessions). Close Claude Code, then run this again."
+        }
+
+        $claude = Get-Claude
+        if ($claude -and (Test-McpPointsHere $claude)) {
+            Invoke-Tool $claude @('mcp', 'remove', 'lrw', '--scope', 'user') | Out-Null
+            Write-Host "Removed the MCP server 'lrw' from Claude Code."
+        }
+        elseif (-not $claude -and (Test-Path -LiteralPath $claudeDir)) {
+            Write-Host 'The claude command is not on PATH - if Claude Code still lists the MCP server lrw, remove it with: claude mcp remove lrw --scope user'
+        }
+        if (Test-Path -LiteralPath (Join-Path $skillDir $skillMark)) {
+            Remove-Item -LiteralPath $skillDir -Recurse -Force
+            Write-Host "Removed the Claude Code skill $skillDir."
+        }
+        $path = Get-UserPath
+        $kept = @($path.Entries | Where-Object { -not (Test-OurEntry $_) })
+        if ($kept.Count -ne $path.Entries.Count) {
+            Set-UserPath $kept $path.Kind
+            Write-Host "Removed $installDir from your user PATH."
+        }
+        if (Test-Path -LiteralPath $installDir) {
+            Remove-Item -LiteralPath $installDir -Recurse -Force
+            Write-Host "Removed $installDir."
+        }
+        # State of the setup script earlier versions used
+        $legacy = Join-Path $env:LOCALAPPDATA 'lrw'
+        if (Test-Path -LiteralPath $legacy) { Remove-Item -LiteralPath $legacy -Recurse -Force }
+        Write-Host 'lrw is uninstalled. Saved servers and logs are kept.'
+    }
+
+    if ($Status) { Show-Status; return }
+    if ($Uninstall) { Uninstall-Lrw; return }
+
+    $tag = Install-Lrw
+    if (-not $NoPath) { Add-ToPath }
+    if ((Get-Claude) -or (Test-Path -LiteralPath $claudeDir)) {
+        if (-not $NoMcp) { Register-Mcp }
+        if (-not $NoSkill) { Install-Skill $tag }
+    }
+    elseif (-not ($NoMcp -and $NoSkill)) {
+        Write-Host 'Claude Code is not installed - after installing it, run this again to connect lrw (MCP server and skill).'
+    }
+    Write-Host ''
+    Write-Host 'Next:'
+    Write-Host '  lrw profiles add <name> --host <server ip> --key <private key path> --make-default'
+    Write-Host '  lrw connection test'
 }

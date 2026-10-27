@@ -6,7 +6,7 @@
 # name of whoever started the run), tags it and publishes the GitHub release. If anything fails, the repository is left as it was.
 # Fallback: push a tag v<major>.<minor>.<patch> yourself - then nothing is committed.
 #
-# Assets: lrw-<rid>.zip / .tar.gz (one self-contained executable each; lrw-setup.ps1 downloads these),
+# Assets: lrw-<rid>.zip / .tar.gz (one self-contained executable each; scripts/install-cli.* download these),
 # the app's Velopack files (LinuxRemoteWorker-win-Setup.exe for a first install, the full .nupkg and
 # releases.win.json for automatic updates), LinuxRemoteWorker-update.sig.json - the update's hash signed with the
 # UPDATE_SIGNING_KEY secret, which installed apps check before updating - and SHA256SUMS.txt.

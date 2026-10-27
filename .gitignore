@@ -426,5 +426,5 @@ FodyWeavers.xsd
 *.msm
 *.msp
 
-# Claude Code: per-user local settings (the project skill in .claude/skills is shared)
-.claude/settings.local.json
+# Claude Code: per-user local files (the lrw skill the install scripts ship lives in skill/)
+.claude/
