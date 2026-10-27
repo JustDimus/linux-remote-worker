@@ -106,7 +106,7 @@ Everything is idempotent: re-running an action on an already-configured server i
 
 Download `LinuxRemoteWorker-win-Setup.exe` from the [latest release](https://github.com/JustDimus/linux-remote-worker/releases/latest)
 and run it. The app installs for your Windows user into `%LocalAppData%\LinuxRemoteWorker` (no administrator
-rights), with a Start menu shortcut and an entry under *Settings → Apps* to uninstall it. Windows SmartScreen may
+rights), with shortcuts on the desktop and in the Start menu and an entry under *Settings → Apps* to uninstall it. Windows SmartScreen may
 warn once, because the installer is not code-signed — *More info → Run anyway*.
 
 **It keeps itself up to date.** At every start and every few hours the app looks at the GitHub releases; a newer
@@ -558,8 +558,11 @@ LinuxRemoteWorker.Core/            net8.0 library, no UI — everything that tal
     ├── SystemInfo/  Postgres/  Repositories/  Services/  Firewall/  Logs/
     └── Nginx/                     sites, safe config edits, certbot certificates
 LinuxRemoteWorker/                 WPF desktop app
+├── Program.cs                     Entry point: Velopack's install/update hooks, then the WPF app
 ├── App.xaml(.cs)                  Startup, global exception handlers, log bootstrap
 ├── MainWindow.xaml(.cs)           Shell: sidebar navigation + content host
+├── Assets/                        app.ico (exe, window, installer) and app.png (sidebar)
+├── Update/UpdateService.cs        Signed automatic updates from the GitHub releases
 ├── Core/IModule.cs                Contract every module view-model implements
 ├── ViewModels/
 │   ├── BaseViewModel.cs           IsBusy / StatusMessage / HasError + RunSafeAsync

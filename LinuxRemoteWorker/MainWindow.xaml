@@ -13,7 +13,7 @@
         xmlns:logs="clr-namespace:LinuxRemoteWorker.Modules.Logs"
         xmlns:applog="clr-namespace:LinuxRemoteWorker.Modules.AppLogs"
         xmlns:conv="clr-namespace:LinuxRemoteWorker.Converters"
-        Title="Linux Remote Worker" Height="700" Width="1100"
+        Title="Linux Remote Worker" Height="700" Width="1100" Icon="Assets/app.ico"
         Background="#13131F" WindowStartupLocation="CenterScreen">
 
     <Window.Resources>
@@ -93,11 +93,15 @@
             <DockPanel>
                 <!-- App title -->
                 <Border DockPanel.Dock="Top" Padding="16 20" BorderBrush="#2A2A3E" BorderThickness="0 0 0 1">
-                    <StackPanel>
-                        <TextBlock Text="Linux Remote Worker" Foreground="White" FontSize="14" FontWeight="Bold"/>
-                        <TextBlock Text="{Binding ConnectVM.Host, StringFormat='→ {0}'}"
-                                   Foreground="#555" FontSize="11" Margin="0 4 0 0"/>
-                    </StackPanel>
+                    <DockPanel>
+                        <Image DockPanel.Dock="Left" Source="Assets/app.png" Width="30" Height="30" Margin="0 0 10 0"
+                               VerticalAlignment="Center" RenderOptions.BitmapScalingMode="HighQuality"/>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock Text="Linux Remote Worker" Foreground="White" FontSize="14" FontWeight="Bold"/>
+                            <TextBlock Text="{Binding ConnectVM.Host, StringFormat='→ {0}'}"
+                                       Foreground="#555" FontSize="11" Margin="0 4 0 0"/>
+                        </StackPanel>
+                    </DockPanel>
                 </Border>
 
                 <!-- Module nav -->

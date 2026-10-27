@@ -150,7 +150,8 @@ jobs:
         run: |
           dotnet tool install --global vpk --version "$VPK_VERSION"
           vpk pack --packId LinuxRemoteWorker --packVersion "$VERSION" --packDir out/app \
-            --mainExe LinuxRemoteWorker.exe --packTitle "Linux Remote Worker" --outputDir out/velopack
+            --mainExe LinuxRemoteWorker.exe --packTitle "Linux Remote Worker" --icon LinuxRemoteWorker/Assets/app.ico \
+            --outputDir out/velopack
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

@@ -8,7 +8,14 @@
     <UseWPF>true</UseWPF>
     <!-- Program.Main runs Velopack's hooks before WPF starts -->
     <StartupObject>LinuxRemoteWorker.Program</StartupObject>
+    <!-- The exe's icon: taskbar, Explorer, shortcuts (the installer gets it from the release workflow's vpk pack) -->
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\app.ico" />
+    <Resource Include="Assets\app.png" />
+  </ItemGroup>
 
   <ItemGroup>
     <!-- The public half of the update signing key (tools/new-update-signing-key.ps1); without it updates stay off -->
