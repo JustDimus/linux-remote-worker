@@ -66,6 +66,18 @@ has_claude() { command -v claude >/dev/null 2>&1 || [ -d "$CLAUDE_DIR" ]; }
 
 installed_version() { "$EXE" version --text </dev/null 2>/dev/null || true; }
 
+# version_newer <a> <b> - whether version a (x.y.z) is newer than b
+version_newer() {
+  local IFS=. a b i
+  read -r -a a <<<"$1"
+  read -r -a b <<<"$2"
+  for i in 0 1 2; do
+    if [ "${a[i]:-0}" -gt "${b[i]:-0}" ]; then return 0; fi
+    if [ "${a[i]:-0}" -lt "${b[i]:-0}" ]; then return 1; fi
+  done
+  return 1
+}
+
 # The newest release's tag, empty when GitHub cannot be asked
 latest_tag() {
   local version
@@ -117,6 +129,7 @@ show_status() {
   else
     if [ -z "$current" ]; then verdict="run this script to install it"
     elif [ "v$current" = "$latest" ]; then verdict="up to date"
+    elif version_newer "$current" "${latest#v}"; then verdict="newer than the newest release"
     else verdict="update available - run this script again"; fi
     echo "newest: $latest ($verdict)"
   fi
@@ -149,9 +162,17 @@ install_lrw() {
   case "$TAG" in v*) ;; *) TAG="v$TAG" ;; esac
 
   current=$(installed_version)
-  if [ -n "$current" ] && [ "v$current" = "$TAG" ] && [ "$FORCE" != 1 ]; then
-    echo "lrw $current is already installed - nothing to download."
-    return
+  if [ -n "$current" ] && [ "$FORCE" != 1 ]; then
+    if [ "v$current" = "$TAG" ]; then
+      echo "lrw $current is already installed - nothing to download."
+      return
+    fi
+    # Without --version, a copy newer than the newest release (a pre-release) is not taken back
+    if [ -z "$VERSION" ] && version_newer "$current" "${TAG#v}"; then
+      echo "lrw $current is already installed, newer than the newest release $TAG - nothing to download."
+      TAG="v$current"
+      return
+    fi
   fi
 
   archive="lrw-$rid.tar.gz"

@@ -22,6 +22,7 @@ public sealed class UpdateCommands : CommandSet
         [Arg("Register the MCP server again, connecting to this saved profile by default")] string? mcpProfile = null,
         [Arg("Register the MCP server in Claude Code when it is not yet (--no-mcp to leave Claude Code alone)")] bool mcp = true,
         [Arg("Add or refresh the Claude Code skill (--no-skill to leave it alone)")] bool skill = true,
+        [Arg("Put lrw on PATH when it is not there (--no-path to leave PATH alone)")] bool path = true,
         CancellationToken ct = default)
     {
         if (check && version != null) throw OperationException.Invalid("--check compares with the newest release; leave out --version.");
@@ -61,8 +62,9 @@ public sealed class UpdateCommands : CommandSet
         try
         {
             Lines($"Checking {script} of {ReleaseChannel.Tag(target)} against its SHA256SUMS.txt...");
-            var path = await DownloadAsync(channel, target, script, folder.FullName, ct);
-            var exitCode = await RunScriptAsync(path, ScriptArguments(OperatingSystem.IsWindows(), target, force, mcpProfile, mcp, skill), ct);
+            var downloaded = await DownloadAsync(channel, target, script, folder.FullName, ct);
+            var arguments = ScriptArguments(OperatingSystem.IsWindows(), target, force, mcpProfile, mcp, skill, path);
+            var exitCode = await RunScriptAsync(downloaded, arguments, ct);
             if (exitCode != 0) throw OperationException.Failed($"The install script stopped with exit code {exitCode} - see its output above.");
         }
         finally
@@ -77,13 +79,14 @@ public sealed class UpdateCommands : CommandSet
     }
 
     /// <summary>The install script's options for these choices; MCP and skill flags pass through as the script names them.</summary>
-    internal static IReadOnlyList<string> ScriptArguments(bool windows, Version target, bool force, string? mcpProfile, bool mcp, bool skill)
+    internal static IReadOnlyList<string> ScriptArguments(bool windows, Version target, bool force, string? mcpProfile, bool mcp, bool skill, bool path)
     {
         var arguments = new List<string> { windows ? "-Version" : "--version", ReleaseChannel.Tag(target) };
         if (force) arguments.Add(windows ? "-Force" : "--force");
         if (mcpProfile != null) arguments.AddRange([windows ? "-McpProfile" : "--mcp-profile", mcpProfile]);
         if (!mcp) arguments.Add(windows ? "-NoMcp" : "--no-mcp");
         if (!skill) arguments.Add(windows ? "-NoSkill" : "--no-skill");
+        if (!path) arguments.Add(windows ? "-NoPath" : "--no-path");
         return arguments;
     }
 
@@ -118,7 +121,12 @@ public sealed class UpdateCommands : CommandSet
             ? new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe"))
             : new ProcessStartInfo("bash");
         if (OperatingSystem.IsWindows())
+        {
             foreach (var option in new[] { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File" }) start.ArgumentList.Add(option);
+            // Started from PowerShell 7, lrw inherits its PSModulePath; Windows PowerShell would then find PowerShell 7's
+            // modules first, fail to load them and miss their commands. Without the variable it uses its own folders.
+            start.Environment.Remove("PSModulePath");
+        }
         start.ArgumentList.Add(script);
         foreach (var argument in arguments) start.ArgumentList.Add(argument);
         start.UseShellExecute = false;

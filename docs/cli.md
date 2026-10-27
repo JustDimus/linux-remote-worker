@@ -82,7 +82,7 @@ lrw update --version v0.2.1      # a given release, also an older one
 
 `lrw update` downloads the install script of the release it installs, checks it against that release's
 `SHA256SUMS.txt` and runs it, so the program and the skill are replaced exactly as the install command does it;
-`--no-skill`, `--no-mcp` and `--mcp-profile` pass through. It updates the copy the install scripts put in place
+`--no-skill`, `--no-mcp`, `--no-path` and `--mcp-profile` pass through. It updates the copy the install scripts put in place
 and refuses any other, such as a development build. It works while lrw runs as an MCP server: open Claude
 sessions keep the old version until they restart. `update` is a command of the command line, not an MCP tool.
 
@@ -94,8 +94,8 @@ Output for scripts, agents and MCP (JSON, pipes) never gets it, and `LRW_NO_UPDA
 *Releasing* in the README): self-contained single-file builds for win-x64, win-arm64, linux-x64,
 linux-arm64, osx-x64 and osx-arm64, plus the install scripts, the skill package `lrw-skill.tar.gz` and
 `version.txt`, all in `SHA256SUMS.txt`. [`install-scripts.yml`](../.github/workflows/install-scripts.yml) tries
-both install scripts on Ubuntu, macOS and Windows whenever they change, and after every release also `lrw update`
-on the release just published.
+both install scripts on Ubuntu, macOS and Windows whenever they change; for every release it installs the new
+release (still a pre-release) and tries `lrw update` on it before the release becomes the latest one.
 
 **Without installing:** `dotnet run --project LinuxRemoteWorker.Cli -- <arguments>`.
 

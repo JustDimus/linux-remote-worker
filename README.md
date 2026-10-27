@@ -555,8 +555,10 @@ fails, the repository stays as it was. Pushing a tag `vX.Y.Z` by hand still work
 
 Besides the builds, every release carries the Claude Code skill as `lrw-skill.tar.gz` and its version in
 `version.txt` (the install scripts read the newest one from `releases/latest/download/version.txt`), all listed
-in `SHA256SUMS.txt`. When the release is out, the workflow installs it with both install scripts on Ubuntu, macOS
-and Windows, so a release that cannot be installed shows up at once.
+in `SHA256SUMS.txt`. The release is published as a **pre-release** first: the workflow installs it with its own
+install scripts on Ubuntu, macOS and Windows, tries `lrw update` on it, and only then makes it the latest release.
+The install commands, `lrw update` and the desktop app's automatic updates all follow the latest release, so a
+release that fails this check stays a pre-release that nobody gets; delete it on GitHub and release again.
 
 **Once, before the first release with the app:** create the update signing key on your own computer —
 

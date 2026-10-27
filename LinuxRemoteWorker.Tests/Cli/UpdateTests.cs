@@ -230,11 +230,11 @@ public class UpdateCommandLineTests
     {
         var target = new Version(0, 3, 0);
 
-        Assert.Equal(["-Version", "v0.3.0", "-Force", "-McpProfile", "prod", "-NoMcp", "-NoSkill"],
-            UpdateCommands.ScriptArguments(windows: true, target, force: true, mcpProfile: "prod", mcp: false, skill: false));
+        Assert.Equal(["-Version", "v0.3.0", "-Force", "-McpProfile", "prod", "-NoMcp", "-NoSkill", "-NoPath"],
+            UpdateCommands.ScriptArguments(windows: true, target, force: true, mcpProfile: "prod", mcp: false, skill: false, path: false));
         Assert.Equal(["--version", "v0.3.0"],
-            UpdateCommands.ScriptArguments(windows: false, target, force: false, mcpProfile: null, mcp: true, skill: true));
-        Assert.Equal(["--version", "v0.3.0", "--force", "--mcp-profile", "prod", "--no-mcp", "--no-skill"],
-            UpdateCommands.ScriptArguments(windows: false, target, force: true, mcpProfile: "prod", mcp: false, skill: false));
+            UpdateCommands.ScriptArguments(windows: false, target, force: false, mcpProfile: null, mcp: true, skill: true, path: true));
+        Assert.Equal(["--version", "v0.3.0", "--force", "--mcp-profile", "prod", "--no-mcp", "--no-skill", "--no-path"],
+            UpdateCommands.ScriptArguments(windows: false, target, force: true, mcpProfile: "prod", mcp: false, skill: false, path: false));
     }
 }

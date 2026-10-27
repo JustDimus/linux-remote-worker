@@ -105,10 +105,19 @@ param(
             if ($line -match '^([0-9a-fA-F]{64})\s+\*?(.+)$' -and $Matches[2].Trim() -eq $File) { $Matches[1] }
         }
         if (-not $expected) { throw "$File is not listed in SHA256SUMS.txt of $Tag." }
-        if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne ([string]$expected).ToUpperInvariant()) {
+        if ((Get-Sha256 $path) -ne ([string]$expected).ToUpperInvariant()) {
             throw "$File does not match SHA256SUMS.txt of $Tag - nothing was installed."
         }
         $path
+    }
+
+    # .NET itself: Get-FileHash comes from a module that Windows PowerShell may fail to load when started from
+    # PowerShell 7 (it inherits a PSModulePath pointing at PowerShell 7's modules)
+    function Get-Sha256([string]$Path) {
+        $sha256 = [Security.Cryptography.SHA256]::Create()
+        $stream = [IO.File]::OpenRead($Path)
+        try { ([BitConverter]::ToString($sha256.ComputeHash($stream))) -replace '-', '' }
+        finally { $stream.Dispose(); $sha256.Dispose() }
     }
 
     # The user PATH is read and written raw, so entries like %USERPROFILE%\bin stay unexpanded
@@ -139,7 +148,10 @@ param(
         Write-Host "lrw:    $(if ($current) { "$current ($exe)" } else { 'not installed' })"
         try {
             $latest = Get-LatestTag
-            $verdict = if (-not $current) { 'run this script to install it' } elseif ("v$current" -eq $latest) { 'up to date' } else { 'update available - run this script again' }
+            $verdict = if (-not $current) { 'run this script to install it' }
+                       elseif ("v$current" -eq $latest) { 'up to date' }
+                       elseif ([version]$current -gt [version]$latest.TrimStart('v')) { 'newer than the newest release' }
+                       else { 'update available - run this script again' }
             Write-Host "newest: $latest ($verdict)"
         }
         catch { Write-Host "newest: unknown ($($_.Exception.Message))" }
@@ -164,6 +176,11 @@ param(
         if (-not $tag.StartsWith('v')) { $tag = "v$tag" }
 
         $current = Get-InstalledVersion
+        # Without -Version, a copy newer than the newest release (a pre-release) is not taken back
+        if ($current -and -not $Force -and -not $Version -and [version]$current -gt [version]$tag.TrimStart('v')) {
+            Write-Host "lrw $current is already installed, newer than the newest release $tag - nothing to download."
+            return "v$current"
+        }
         if ($current -and "v$current" -eq $tag -and -not $Force) {
             Write-Host "lrw $current is already installed - nothing to download."
             return $tag

@@ -244,7 +244,7 @@ curl -fsSL "$lrw_sh" | bash -s -- --uninstall
 
 Options, the same in both scripts: `-Version`/`--version <tag>`, `-McpProfile`/`--mcp-profile <name>`,
 `-NoMcp`/`--no-mcp`, `-NoSkill`/`--no-skill`, `-NoPath`/`--no-path`, `-Force`/`--force`. `lrw update`
-takes `--no-mcp`, `--no-skill`, `--mcp-profile` and `--force` too.
+takes `--no-mcp`, `--no-skill`, `--no-path`, `--mcp-profile` and `--force` too.
 
 - Program location: `%LOCALAPPDATA%\Programs\lrw` (added to the user PATH) on Windows,
   `~/.local/share/lrw` linked as `~/.local/bin/lrw` on Linux and macOS.
