@@ -229,11 +229,12 @@ put it on PATH and, with Claude Code installed, register the MCP server `lrw` an
 same release. No administrator rights, no .NET.
 
 ```
-# Windows (PowerShell)
-$lrw = 'https://github.com/JustDimus/linux-remote-worker/releases/latest/download/install-cli.ps1'
-irm $lrw | iex                                      # install (or update; also connects a newly installed Claude Code)
-& ([scriptblock]::Create((irm $lrw))) -Status        # installed version, newest release, PATH, MCP, skill
-& ([scriptblock]::Create((irm $lrw))) -Uninstall     # remove program, PATH entry, MCP registration, skill
+# Windows - from PowerShell, cmd or Git Bash; the script runs in a fresh Windows PowerShell of its own
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://github.com/JustDimus/linux-remote-worker/releases/latest/download/install-cli.ps1 | iex"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "& ([scriptblock]::Create((irm https://github.com/JustDimus/linux-remote-worker/releases/latest/download/install-cli.ps1))) -Status"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "& ([scriptblock]::Create((irm https://github.com/JustDimus/linux-remote-worker/releases/latest/download/install-cli.ps1))) -Uninstall"
+# (install - also connects a newly installed Claude Code; -Status - version, newest release, PATH, MCP, skill;
+#  -Uninstall - program, PATH entry, MCP registration, skill)
 
 # macOS, Linux (bash)
 lrw_sh=https://github.com/JustDimus/linux-remote-worker/releases/latest/download/install-cli.sh

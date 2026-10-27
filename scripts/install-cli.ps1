@@ -4,13 +4,14 @@ Installs, updates, checks or removes lrw - the command line of Linux Remote Work
 MCP server and skill for Claude Code.
 
 .DESCRIPTION
-One line in PowerShell - no clone, no administrator rights, no .NET:
+One line from PowerShell or cmd - no clone, no administrator rights, no .NET. It runs the script in a fresh Windows
+PowerShell, so nothing loaded in the caller's window (a profile, modules such as PSReadLine) gets in its way:
 
-    irm https://github.com/JustDimus/linux-remote-worker/releases/latest/download/install-cli.ps1 | iex
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://github.com/JustDimus/linux-remote-worker/releases/latest/download/install-cli.ps1 | iex"
 
 With options:
 
-    & ([scriptblock]::Create((irm https://github.com/JustDimus/linux-remote-worker/releases/latest/download/install-cli.ps1))) -Status
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "& ([scriptblock]::Create((irm https://github.com/JustDimus/linux-remote-worker/releases/latest/download/install-cli.ps1))) -Status"
 
 scripts/install-cli.sh does the same on macOS and Linux:
 - lrw: the release build for this CPU, checked against the release's SHA256SUMS.txt, goes to
@@ -168,10 +169,18 @@ param(
         Write-Host "skill:  $skill"
     }
 
+    # .NET's RuntimeInformation, taken from the core library itself: a console window's PSReadLine brings a same-named
+    # stand-in without OSArchitecture, and in that window the plain type name can resolve to it
+    function Get-Architecture {
+        $runtime = [object].Assembly.GetType('System.Runtime.InteropServices.RuntimeInformation')
+        $arch = $runtime::OSArchitecture.ToString().ToLowerInvariant()
+        if ($arch -notin 'x64', 'arm64') { throw "Unsupported CPU '$arch': lrw is built for x64 and arm64." }
+        $arch
+    }
+
     # Returns the release tag that is installed now
     function Install-Lrw {
-        $arch = [Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
-        if ($arch -notin 'x64', 'arm64') { throw "Unsupported CPU '$arch': lrw is built for x64 and arm64." }
+        $arch = Get-Architecture
         $tag = if ($Version) { $Version } else { Get-LatestTag }
         if (-not $tag.StartsWith('v')) { $tag = "v$tag" }
 
@@ -217,7 +226,7 @@ param(
         $path = Get-UserPath
         if (-not ($path.Entries | Where-Object { Test-OurEntry $_ })) {
             Set-UserPath (@($path.Entries) + $installDir) $path.Kind
-            Write-Host "Added $installDir to your user PATH."
+            Write-Host "Added $installDir to your user PATH - terminals opened from now on find lrw."
         }
         # New terminals see the new PATH; this one gets it here, so lrw works right away
         if (@($env:Path -split ';') -notcontains $installDir) { $env:Path = "$env:Path;$installDir" }

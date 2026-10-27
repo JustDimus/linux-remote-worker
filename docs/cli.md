@@ -44,10 +44,14 @@ lrw; running a script again does the same and also connects lrw to a Claude Code
 ```powershell
 # Windows (PowerShell)
 $lrw = 'https://github.com/JustDimus/linux-remote-worker/releases/latest/download/install-cli.ps1'
-irm $lrw | iex                                      # install, or update when installed
-& ([scriptblock]::Create((irm $lrw))) -Status        # installed version, newest release, PATH, MCP, skill
-& ([scriptblock]::Create((irm $lrw))) -Uninstall     # remove it all; saved servers and logs stay
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm $lrw | iex"                                # install
+powershell -NoProfile -ExecutionPolicy Bypass -Command "& ([scriptblock]::Create((irm $lrw))) -Status"     # version, newest release, PATH, MCP, skill
+powershell -NoProfile -ExecutionPolicy Bypass -Command "& ([scriptblock]::Create((irm $lrw))) -Uninstall"  # remove it all; saved servers and logs stay
 ```
+
+On Windows the script runs in a fresh Windows PowerShell of its own (`powershell -NoProfile`), so nothing loaded in
+your window - a profile, or modules such as PSReadLine with its own stand-ins for .NET types - can get in its way;
+the same lines work from `cmd` with the address written out. Open a new terminal afterwards to find `lrw` on PATH.
 
 ```bash
 # macOS, Ubuntu and other Linux (wget -qO- works in place of curl -fsSL)

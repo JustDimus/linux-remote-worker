@@ -120,11 +120,14 @@ jobs:
           if (Test-Path "$env:LOCALAPPDATA\Programs\lrw") { throw 'lrw is still there after uninstall' }
           if (Test-Path $skill) { throw 'the skill is still there after uninstall' }
 
-      - name: Windows PowerShell 5.1, as the one-liner runs it
+      - name: Windows PowerShell 5.1, as the one-liner runs it in a console window
         shell: powershell
         env:
           VERSION: ${{ inputs.version }}
         run: |
+          # A console window loads PSReadLine first; its copies of RuntimeInformation and OSPlatform then stand in for
+          # .NET's own when the script names them (they once left the CPU architecture empty)
+          Import-Module PSReadLine
           $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'winps'
           $env:CLAUDE_CONFIG_DIR = Join-Path $env:RUNNER_TEMP 'claude-winps'
           New-Item -ItemType Directory -Force $env:CLAUDE_CONFIG_DIR | Out-Null

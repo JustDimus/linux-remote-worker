@@ -37,8 +37,8 @@ No administrator rights, no .NET, and it keeps itself up to date ([details](#ins
 lrw to a Claude Code installed later.
 
 ```powershell
-# Windows (PowerShell)
-irm https://github.com/JustDimus/linux-remote-worker/releases/latest/download/install-cli.ps1 | iex
+# Windows (PowerShell or cmd) - the script runs in a fresh Windows PowerShell, untouched by your window
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://github.com/JustDimus/linux-remote-worker/releases/latest/download/install-cli.ps1 | iex"
 ```
 
 ```bash
@@ -46,11 +46,12 @@ irm https://github.com/JustDimus/linux-remote-worker/releases/latest/download/in
 curl -fsSL https://github.com/JustDimus/linux-remote-worker/releases/latest/download/install-cli.sh | bash
 ```
 
-To remove `lrw` with its PATH entry, MCP registration and skill (saved servers stay):
+Open a new terminal afterwards to find `lrw` on PATH. To remove `lrw` with its PATH entry, MCP registration and
+skill (saved servers stay):
 
 ```powershell
-# Windows (PowerShell)
-& ([scriptblock]::Create((irm https://github.com/JustDimus/linux-remote-worker/releases/latest/download/install-cli.ps1))) -Uninstall
+# Windows (PowerShell or cmd)
+powershell -NoProfile -ExecutionPolicy Bypass -Command "& ([scriptblock]::Create((irm https://github.com/JustDimus/linux-remote-worker/releases/latest/download/install-cli.ps1))) -Uninstall"
 ```
 
 ```bash
@@ -484,7 +485,7 @@ SSH never firewalled off, destructive commands refused without `--yes`).
 
 ```powershell
 # Install lrw and register it in Claude Code (macOS / Linux: install-cli.sh, see docs/cli.md); later: lrw update
-irm https://github.com/JustDimus/linux-remote-worker/releases/latest/download/install-cli.ps1 | iex
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://github.com/JustDimus/linux-remote-worker/releases/latest/download/install-cli.ps1 | iex"
 
 lrw profiles add prod --host 203.0.113.10 --key C:\keys\id_ed25519 --make-default
 lrw connection test
