@@ -2,7 +2,9 @@
 # scripts/install-cli.ps1 (Windows: PowerShell 7 from the file, Windows PowerShell 5.1 the way the one-liner runs
 # it), runs lrw, checks the status, runs the script again (nothing to download) and uninstalls. Each job installs
 # into throwaway folders; Claude Code itself is not there, so the MCP registration is only reported. Runs when the
-# scripts or the skill change, at the end of every release (release.yml calls it), or by hand.
+# scripts or the skill change, at the end of every release (release.yml calls it), or by hand. Called for a
+# release, it also runs lrw update on the release just published: --check, a plain run (nothing to do) and --force
+# (the release's own script downloaded, checked and run over the running program).
 
 name: Install scripts
 
@@ -13,6 +15,11 @@ on:
       - skill/**
       - .github/workflows/install-scripts.yml
   workflow_call:
+    inputs:
+      release:
+        description: Also try lrw update (the release under test has the command)
+        type: boolean
+        default: false
   workflow_dispatch:
 
 permissions:
@@ -31,17 +38,29 @@ jobs:
 
       - name: Install, run, update, uninstall
         shell: bash
+        env:
+          RELEASE: ${{ inputs.release }}
         run: |
           set -euo pipefail
           export HOME="$RUNNER_TEMP/home" SHELL=/bin/bash
           mkdir -p "$HOME/.claude"   # as if Claude Code were installed, so the skill is added
           bash scripts/install-cli.sh
-          "$HOME/.local/bin/lrw" version --text
-          "$HOME/.local/bin/lrw" help >/dev/null
+          lrw="$HOME/.local/bin/lrw"
+          "$lrw" version --text
+          "$lrw" help >/dev/null
           grep -qsF '.local/bin' "$HOME/.bashrc" "$HOME/.bash_profile"
           grep -q '^name: linux-remote-worker' "$HOME/.claude/skills/linux-remote-worker/SKILL.md"
           bash scripts/install-cli.sh --status | tee status.txt
           grep -q 'up to date' status.txt
+          if [ "$RELEASE" = true ]; then
+            "$lrw" update --check --json | tee check.json
+            grep -q '"updateAvailable": false' check.json
+            "$lrw" update --json | tee update.json
+            grep -q '"updated": false' update.json
+            "$lrw" update --force --no-mcp --json | tee forced.json
+            grep -q '"updated": true' forced.json
+            "$lrw" version --text
+          fi
           bash -s -- --no-mcp < scripts/install-cli.sh | tee second-run.txt
           grep -q 'already installed' second-run.txt
           bash scripts/install-cli.sh --uninstall
@@ -57,18 +76,31 @@ jobs:
 
       - name: PowerShell 7, from the file
         shell: pwsh
+        env:
+          RELEASE: ${{ inputs.release }}
         run: |
           $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'pwsh'
           $env:CLAUDE_CONFIG_DIR = Join-Path $env:RUNNER_TEMP 'claude-pwsh'   # as if Claude Code were installed
           New-Item -ItemType Directory -Force $env:CLAUDE_CONFIG_DIR | Out-Null
           $skill = "$env:CLAUDE_CONFIG_DIR\skills\linux-remote-worker"
           ./scripts/install-cli.ps1
-          & "$env:LOCALAPPDATA\Programs\lrw\lrw.exe" version --text
+          $lrw = "$env:LOCALAPPDATA\Programs\lrw\lrw.exe"
+          & $lrw version --text
           if ($LASTEXITCODE -ne 0) { throw 'lrw does not start' }
           if (-not (Test-Path "$skill\SKILL.md")) { throw 'the skill was not added' }
           $status = ./scripts/install-cli.ps1 -Status 6>&1 | Out-String
           $status
           if ($status -notmatch 'up to date') { throw 'status does not report the installed version as up to date' }
+          if ($env:RELEASE -eq 'true') {
+            $check = & $lrw update --check --json | Out-String; $check
+            if ($check -notmatch '"updateAvailable": false') { throw 'lrw update --check does not report up to date' }
+            $plain = & $lrw update --json | Out-String; $plain
+            if ($plain -notmatch '"updated": false') { throw 'lrw update did something although lrw is up to date' }
+            # The script renames the running lrw.exe out of the way and puts the release's copy in its place
+            $forced = & $lrw update --force --no-mcp --json | Out-String; $forced
+            if ($LASTEXITCODE -ne 0 -or $forced -notmatch '"updated": true') { throw 'lrw update --force failed' }
+            & $lrw version --text
+          }
           ./scripts/install-cli.ps1 -NoMcp
           ./scripts/install-cli.ps1 -Uninstall
           if (Test-Path "$env:LOCALAPPDATA\Programs\lrw") { throw 'lrw is still there after uninstall' }

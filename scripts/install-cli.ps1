@@ -6,11 +6,11 @@ MCP server and skill for Claude Code.
 .DESCRIPTION
 One line in PowerShell - no clone, no administrator rights, no .NET:
 
-    irm https://raw.githubusercontent.com/JustDimus/linux-remote-worker/main/scripts/install-cli.ps1 | iex
+    irm https://github.com/JustDimus/linux-remote-worker/releases/latest/download/install-cli.ps1 | iex
 
 With options:
 
-    & ([scriptblock]::Create((irm https://raw.githubusercontent.com/JustDimus/linux-remote-worker/main/scripts/install-cli.ps1))) -Status
+    & ([scriptblock]::Create((irm https://github.com/JustDimus/linux-remote-worker/releases/latest/download/install-cli.ps1))) -Status
 
 scripts/install-cli.sh does the same on macOS and Linux:
 - lrw: the release build for this CPU, checked against the release's SHA256SUMS.txt, goes to
@@ -179,9 +179,13 @@ param(
             if (-not (Test-Path -LiteralPath (Join-Path $work 'lrw\lrw.exe'))) { throw "$asset does not contain lrw.exe." }
 
             New-Item -ItemType Directory -Force -Path $installDir | Out-Null
-            Get-ChildItem -LiteralPath $installDir -Filter '*.old' -File | Remove-Item -Force -ErrorAction SilentlyContinue
-            # A running lrw (an MCP server of an open Claude session) locks lrw.exe, but a locked file can be renamed
-            if (Test-Path -LiteralPath $exe) { Move-Item -LiteralPath $exe -Destination "$exe.$(Get-Date -Format 'yyyyMMddHHmmss').old" }
+            Get-ChildItem -LiteralPath $installDir -Filter 'lrw.exe.*.old' -File | Remove-Item -Force -ErrorAction SilentlyContinue
+            if (Test-Path -LiteralPath $exe) {
+                # A running lrw (lrw update itself, an MCP server of an open Claude session) locks lrw.exe; a locked file
+                # can still be renamed, and the next lrw that starts deletes the renamed copy once nothing runs it
+                try { Remove-Item -LiteralPath $exe -Force }
+                catch { Move-Item -LiteralPath $exe -Destination "$exe.$(Get-Date -Format 'yyyyMMddHHmmss').old" }
+            }
             Copy-Item -Path (Join-Path $work 'lrw\*') -Destination $installDir -Recurse -Force
         }
         finally { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue }
@@ -207,6 +211,11 @@ param(
         $claude = Get-Claude
         if (-not $claude) {
             Write-Host "The claude command is not on PATH - register the MCP server with: $manual"
+            return
+        }
+        # The program path never changes, so a registration made earlier (maybe with a profile) stays as it is
+        if (-not $McpProfile -and (Test-McpPointsHere $claude)) {
+            Write-Host "The MCP server 'lrw' is already registered in Claude Code."
             return
         }
         Invoke-Tool $claude @('mcp', 'remove', 'lrw', '--scope', 'user') | Out-Null

@@ -15,6 +15,9 @@ public sealed class CliSettings
     /// <summary>Profile used when a command passes neither --profile nor --host.</summary>
     public string? DefaultProfile { get; set; }
 
+    /// <summary>When an interactive run last asked GitHub for a newer release (see UpdateNotifier).</summary>
+    public DateTime? UpdateCheckedUtc { get; set; }
+
     public static CliSettings Load()
     {
         try

@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using LinuxRemoteWorker.Cli.Framework;
 using LinuxRemoteWorker.Cli.Mcp;
 using LinuxRemoteWorker.Cli.Session;
+using LinuxRemoteWorker.Cli.Update;
 using LinuxRemoteWorker.Core;
 
 namespace LinuxRemoteWorker.Cli;
@@ -13,6 +14,7 @@ internal static class Program
     {
         Console.OutputEncoding = new UTF8Encoding(false);
         AppLog.Source = "cli";
+        InstallLocation.RemoveReplacedCopies();
 
         var catalog = CommandCatalog.Build(typeof(Program).Assembly);
         var json = (CommandLineParser.PeekFormat(args) ?? DefaultFormat()) == OutputFormat.Json;
@@ -84,6 +86,10 @@ internal static class Program
         };
         var context = new CommandContext(session, line => { if (!quiet) Console.Error.WriteLine(line); }, progressVisible: !quiet);
 
+        // A person at a terminal hears about a newer release once a day; scripts, agents and MCP never do
+        var interactive = !json && !quiet && !Console.IsOutputRedirected && !Console.IsErrorRedirected;
+        var updateNotifier = interactive && command.Group != "update" ? UpdateNotifier.StartIfDue() : null;
+
         var result = await CommandInvoker.InvokeAsync(command, context, parsed.Values, cts.Token);
 
         if (json)
@@ -91,6 +97,7 @@ internal static class Program
         else
             TextRenderer.Write(result.Envelope, Console.Out, Console.Error, outputShown: !quiet && context.ProgressLineCount > 0);
 
+        if (updateNotifier != null) await updateNotifier.FinishAsync(Console.Error);
         return result.ExitCode;
     }
 

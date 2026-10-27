@@ -428,3 +428,6 @@ FodyWeavers.xsd
 
 # Claude Code: per-user local files (the lrw skill the install scripts ship lives in skill/)
 .claude/
+
+# JetBrains Rider: per-user IDE settings
+.idea/

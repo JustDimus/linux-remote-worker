@@ -174,7 +174,7 @@ public static class CommandLineParser
     /// <summary>The longest run of leading words that names a CLI command, and how many words it used.</summary>
     public static (CommandSpec? Command, int Consumed) Resolve(CommandCatalog catalog, IReadOnlyList<string> words)
     {
-        for (var n = words.Count; n >= 2; n--)
+        for (var n = words.Count; n >= 1; n--)
         {
             var path = string.Join(' ', words.Take(n));
             var command = catalog.For(Surface.Cli).FirstOrDefault(c => c.FullPath == path);

@@ -37,12 +37,13 @@ scripts install it, one per system and each native to it: [`scripts/install-cli.
 for Windows PowerShell, [`scripts/install-cli.sh`](../scripts/install-cli.sh) for bash on macOS and Linux. They
 do the same thing: download the release build for the OS and CPU, check it against the release's
 `SHA256SUMS.txt`, put it on PATH and — with Claude Code installed — register the MCP server `lrw` and add the
-[skill](#using-it-from-claude-skill-and-mcp). Nothing to clone, no administrator rights. Run one again to update,
-or to connect lrw to a Claude Code installed later.
+[skill](#using-it-from-claude-skill-and-mcp). Nothing to clone, no administrator rights. Every release carries
+both scripts, and the commands below run the newest release's copies. Later, [`lrw update`](#updating) updates
+lrw; running a script again does the same and also connects lrw to a Claude Code installed later.
 
 ```powershell
 # Windows (PowerShell)
-$lrw = 'https://raw.githubusercontent.com/JustDimus/linux-remote-worker/main/scripts/install-cli.ps1'
+$lrw = 'https://github.com/JustDimus/linux-remote-worker/releases/latest/download/install-cli.ps1'
 irm $lrw | iex                                      # install, or update when installed
 & ([scriptblock]::Create((irm $lrw))) -Status        # installed version, newest release, PATH, MCP, skill
 & ([scriptblock]::Create((irm $lrw))) -Uninstall     # remove it all; saved servers and logs stay
@@ -50,7 +51,7 @@ irm $lrw | iex                                      # install, or update when in
 
 ```bash
 # macOS, Ubuntu and other Linux (wget -qO- works in place of curl -fsSL)
-lrw_sh=https://raw.githubusercontent.com/JustDimus/linux-remote-worker/main/scripts/install-cli.sh
+lrw_sh=https://github.com/JustDimus/linux-remote-worker/releases/latest/download/install-cli.sh
 curl -fsSL "$lrw_sh" | bash                          # install, or update when installed
 curl -fsSL "$lrw_sh" | bash -s -- --status
 curl -fsSL "$lrw_sh" | bash -s -- --uninstall
@@ -67,15 +68,34 @@ curl -fsSL "$lrw_sh" | bash -s -- --uninstall
 
 The program goes to `%LOCALAPPDATA%\Programs\lrw` (added to the user PATH) on Windows and to
 `~/.local/share/lrw`, linked as `~/.local/bin/lrw` (with `~/.local/bin` added to the shell profile when it is
-not on PATH), on Linux and macOS. Updating works while lrw runs as an MCP server; uninstalling on Windows asks
-to close Claude Code first. Registering the MCP server needs the `claude` command on PATH — without it the
-script prints the `claude mcp add` command to run.
+not on PATH), on Linux and macOS. Uninstalling on Windows asks to close Claude Code first. Registering the MCP
+server needs the `claude` command on PATH — without it the script prints the `claude mcp add` command to run; a
+registration that is already there stays as it is unless `-McpProfile` / `--mcp-profile` asks for a new one.
+
+### Updating
+
+```bash
+lrw update --check               # is there a newer release? (--json: current, latest, updateAvailable)
+lrw update                       # install it
+lrw update --version v0.2.1      # a given release, also an older one
+```
+
+`lrw update` downloads the install script of the release it installs, checks it against that release's
+`SHA256SUMS.txt` and runs it, so the program and the skill are replaced exactly as the install command does it;
+`--no-skill`, `--no-mcp` and `--mcp-profile` pass through. It updates the copy the install scripts put in place
+and refuses any other, such as a development build. It works while lrw runs as an MCP server: open Claude
+sessions keep the old version until they restart. `update` is a command of the command line, not an MCP tool.
+
+Once a day, a command run at a terminal checks in the background whether a newer release exists and, if there is
+one, ends with a line like `A new version of lrw is available: v0.2.2 (you have 0.2.1). Run: lrw update`.
+Output for scripts, agents and MCP (JSON, pipes) never gets it, and `LRW_NO_UPDATE_CHECK=1` turns it off.
 
 **Releases** are built by [`.github/workflows/release.yml`](../.github/workflows/release.yml) (see
 *Releasing* in the README): self-contained single-file builds for win-x64, win-arm64, linux-x64,
-linux-arm64, osx-x64 and osx-arm64, plus the skill package `lrw-skill.tar.gz` and `version.txt`, all in
-`SHA256SUMS.txt`. [`install-scripts.yml`](../.github/workflows/install-scripts.yml) tries both install scripts
-on Ubuntu, macOS and Windows whenever they change and after every release.
+linux-arm64, osx-x64 and osx-arm64, plus the install scripts, the skill package `lrw-skill.tar.gz` and
+`version.txt`, all in `SHA256SUMS.txt`. [`install-scripts.yml`](../.github/workflows/install-scripts.yml) tries
+both install scripts on Ubuntu, macOS and Windows whenever they change, and after every release also `lrw update`
+on the release just published.
 
 **Without installing:** `dotnet run --project LinuxRemoteWorker.Cli -- <arguments>`.
 
@@ -226,6 +246,7 @@ its tool timeout or run those steps with the CLI.
 | `firewall` | `status`, `enable`, `disable`, `add`, `delete` |
 | `security` | `status`, `add-my-key`, `add-key`, `remove-key`, `create-key`, `create-admin`, `disable-password-login`, `enable-password-login`, `disable-root-login`, `enable-root-login` — key-only logins as an admin user instead of root, without locking yourself out |
 | `applog` | `list`, `read`, `path` — this tool's own logs, no server needed |
+| `update` | `lrw update [--check]` — lrw itself to the newest release (see [Updating](#updating)); command line only |
 
 Every option of every command: `lrw help <group> <command>`, or the
 [skill's reference](../skill/reference.md).

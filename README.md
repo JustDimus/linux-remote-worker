@@ -1,18 +1,27 @@
 # Linux Remote Worker
 
-**A Windows desktop console for the Linux servers you actually run.**
-Connect over SSH with a key, then install PostgreSQL, clone repositories, deploy .NET services as
-systemd units, put them behind nginx with free HTTPS, open firewall ports and read logs — from one
-window, without memorising a single `systemctl` incantation.
+**Run the Linux servers you actually have — from a Windows app, from the command line on any OS, or by asking
+Claude — without memorising a single `systemctl` incantation.**
 
-The same operations are available from the command line as **`lrw`** — for scripts, and for AI
-agents through a Claude skill and an MCP server. See [Command line & AI agents](#command-line--ai-agents).
+Connect over SSH with a key or a password, then install PostgreSQL, clone repositories, deploy .NET services as
+systemd units, put them behind nginx with free HTTPS, open firewall ports, lock down logins and read logs. Every
+action does what a careful sysadmin would type by hand: input is validated and quoted, nginx changes are tested and
+rolled back when they fail, and SSH can never be firewalled off.
+
+One engine, three ways to use it:
+
+| | What it is | Runs on |
+|---|---|---|
+| **Desktop app** | A screen per job: connect, pick a module, fill in a form | Windows 10+; installs and updates itself |
+| **`lrw`** | The same operations on the command line: tables at a terminal, JSON for scripts | Windows, macOS, Linux (x64, arm64) |
+| **Claude** | `lrw` as an MCP server plus a skill: ask Claude to deploy, check or fix a server | Claude Code, or any MCP client |
 
 <p align="left">
+  <a href="https://github.com/JustDimus/linux-remote-worker/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/JustDimus/linux-remote-worker"></a>
+  <img alt="Desktop app: Windows 10+" src="https://img.shields.io/badge/app-Windows%2010%2B-0078D4">
+  <img alt="lrw: Windows, macOS, Linux" src="https://img.shields.io/badge/lrw-Windows%20%7C%20macOS%20%7C%20Linux-6CCF97">
+  <img alt="Claude skill and MCP server" src="https://img.shields.io/badge/AI-Claude%20skill%20%2B%20MCP-D97757">
   <img alt=".NET 8" src="https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet&logoColor=white">
-  <img alt="WPF" src="https://img.shields.io/badge/UI-WPF%20(MVVM)-0078D4">
-  <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%2010%2B-blue">
-  <img alt="SSH" src="https://img.shields.io/badge/transport-SSH%20key%20auth-6CCF97">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
 </p>
 
@@ -23,29 +32,30 @@ agents through a Claude skill and an MCP server. See [Command line & AI agents](
 No administrator rights, no .NET, and it keeps itself up to date ([details](#install)). Uninstall it under
 *Settings → Apps*.
 
-**Command line `lrw`**, plus its MCP server and skill when Claude Code is installed: one line. Run it again to
-update, or to connect lrw to a Claude Code installed later.
+**Command line `lrw`**, plus its MCP server and skill when Claude Code is installed: one line. Later,
+`lrw update` brings it up to date (lrw mentions a new version once a day); running the line again also connects
+lrw to a Claude Code installed later.
 
 ```powershell
 # Windows (PowerShell)
-irm https://raw.githubusercontent.com/JustDimus/linux-remote-worker/main/scripts/install-cli.ps1 | iex
+irm https://github.com/JustDimus/linux-remote-worker/releases/latest/download/install-cli.ps1 | iex
 ```
 
 ```bash
 # macOS, Ubuntu and other Linux
-curl -fsSL https://raw.githubusercontent.com/JustDimus/linux-remote-worker/main/scripts/install-cli.sh | bash
+curl -fsSL https://github.com/JustDimus/linux-remote-worker/releases/latest/download/install-cli.sh | bash
 ```
 
 To remove `lrw` with its PATH entry, MCP registration and skill (saved servers stay):
 
 ```powershell
 # Windows (PowerShell)
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/JustDimus/linux-remote-worker/main/scripts/install-cli.ps1))) -Uninstall
+& ([scriptblock]::Create((irm https://github.com/JustDimus/linux-remote-worker/releases/latest/download/install-cli.ps1))) -Uninstall
 ```
 
 ```bash
 # macOS, Ubuntu and other Linux
-curl -fsSL https://raw.githubusercontent.com/JustDimus/linux-remote-worker/main/scripts/install-cli.sh | bash -s -- --uninstall
+curl -fsSL https://github.com/JustDimus/linux-remote-worker/releases/latest/download/install-cli.sh | bash -s -- --uninstall
 ```
 
 Options and other ways to install: [docs/cli.md](docs/cli.md#install).
@@ -87,7 +97,7 @@ screen per job, and each screen runs the same commands a competent sysadmin woul
 | ⚙ **.NET Services** | Install the .NET SDK, publish a project from a cloned repo, write a systemd unit, then start / stop / restart / redeploy it — at the newest or any chosen version, as one or several instances |
 | 🌐 **Nginx & SSL** | Install nginx, create reverse-proxy or static sites, edit/enable/disable/delete them safely, get Let's Encrypt certificates, watch expiry and renew |
 | 🛡 **Firewall** | Enable or disable `ufw`, list rules, open and close ports |
-| 🔐 **Security** | See how the server lets users log in, create an SSH key from a password login, turn password logins off |
+| 🔐 **Security** | See how the server lets users log in, create or add SSH keys (also another computer's), switch to key-only logins, create an admin user and turn root logins off — without locking yourself out |
 | 📋 **Server Logs** | `journalctl` for any managed unit (last hour, last day, or live tail) plus the app's own file logs, viewable and downloadable |
 | 🐞 **Application Log** | This app's own diagnostic log — always available, even before you connect |
 
@@ -126,9 +136,11 @@ Everything is idempotent: re-running an action on an already-configured server i
 
 ### Requirements
 
-**On your Windows machine**
+**On your computer**
 
-- Windows 10 or newer (the installer brings its own .NET runtime)
+- The desktop app: Windows 10 or newer (the installer brings its own .NET runtime)
+- `lrw`: Windows, macOS or Linux, x64 or arm64 — one self-contained file, no .NET needed
+  ([install](#quick-install))
 - An SSH **private key**, or the user's **password** (Security can then make a key for you)
 
 **On the Linux server**
@@ -471,8 +483,8 @@ the same saved servers, and it keeps the same safety rules (nginx changes tested
 SSH never firewalled off, destructive commands refused without `--yes`).
 
 ```powershell
-# Install (or update) lrw and register it in Claude Code; macOS / Linux: scripts/install-cli.sh, see docs/cli.md
-irm https://raw.githubusercontent.com/JustDimus/linux-remote-worker/main/scripts/install-cli.ps1 | iex
+# Install lrw and register it in Claude Code (macOS / Linux: install-cli.sh, see docs/cli.md); later: lrw update
+irm https://github.com/JustDimus/linux-remote-worker/releases/latest/download/install-cli.ps1 | iex
 
 lrw profiles add prod --host 203.0.113.10 --key C:\keys\id_ed25519 --make-default
 lrw connection test
@@ -502,7 +514,7 @@ Full documentation: [docs/cli.md](docs/cli.md).
 | `%AppData%\LinuxRemoteWorker\profiles.json` | Saved servers: name, host, username, login method, key **path**, a remembered password encrypted with DPAPI (shared by the app and `lrw`) |
 | `%AppData%\LinuxRemoteWorker\known_hosts.json` | Host key fingerprints of the servers you connected to (shared by the app and `lrw`) |
 | `%AppData%\LinuxRemoteWorker\logs\*.log` | Logs of the app (`app-`), the CLI (`cli-`) and the MCP server (`mcp-`), kept for 14 days |
-| `%AppData%\LinuxRemoteWorker\cli.json` | The CLI's default profile (`lrw profiles use`) |
+| `%AppData%\LinuxRemoteWorker\cli.json` | The CLI's default profile (`lrw profiles use`) and when it last looked for a new release |
 
 Private keys are never copied into the app's data; only the path to the file is stored. Passphrases
 are held in memory for the lifetime of the connection and are never written to disk; passwords too,
@@ -654,7 +666,8 @@ and puts the message on screen instead of crashing the app.
 ## Security notes
 
 - **Keys or passwords.** Passwords are kept only when you ask, encrypted with Windows DPAPI for your
-  account; the Security screen moves a server to key-only logins without risking a lock-out.
+  account (on macOS and Linux, `lrw` asks for the password each time instead); the Security screen moves a
+  server to key-only logins without risking a lock-out.
 - **Passphrases stay in RAM.** They are never written to `profiles.json` or the log; neither are passwords
   in plain text.
 - **Root access is real access.** This app installs packages, edits `/etc`, and manages systemd
@@ -663,6 +676,9 @@ and puts the message on screen instead of crashing the app.
   public half is shown for you to paste into your git host.
 - **Updates are signed.** The app installs an update only when its hash is signed with the release key (see
   *Install*); `--no-update` turns updating off.
+- **lrw installs only checked files.** The install scripts and `lrw update` use nothing but files of a release
+  — the program, the skill and, for `lrw update`, the install script itself — each checked against that
+  release's `SHA256SUMS.txt`.
 - **Host keys are checked.** A server's key is remembered on the first login (trust on first use, like
   OpenSSH's `accept-new`); a different key later is refused until you accept it.
 - **Logs may contain command text**, including database and user names (never passwords). Review
@@ -731,6 +747,7 @@ That file is designed to answer this question.
 - [x] Nginx / reverse proxy module
 - [x] Let's Encrypt certificate management
 - [x] Command line (`lrw`), Claude skill and MCP server
+- [x] One-line install and `lrw update` on Windows, macOS and Linux
 - [ ] Docker container module
 - [ ] Scheduled backups for PostgreSQL databases
 

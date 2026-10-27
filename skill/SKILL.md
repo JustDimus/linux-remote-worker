@@ -210,35 +210,49 @@ lrw applog read --filter ERROR --json                                 # this too
 
 ## Installing, updating and removing lrw
 
-Two scripts of the Linux Remote Worker repository manage the program and this skill: one for Windows
-(Windows PowerShell or PowerShell 7) and one for macOS and Linux (bash), each native to its system and
-doing the same. They download the release build for the OS and CPU, check it against the release's
-SHA256SUMS.txt, put it on PATH and, with Claude Code installed, register the MCP server `lrw` and add
-this skill from the same release. No administrator rights, no .NET.
+**Updating** is a command of lrw itself (command line only, not an MCP tool):
+
+```
+lrw update --check --json      # data.updateAvailable, data.current, data.latest
+lrw update --json              # install the newest release: program and this skill
+lrw update --version v0.2.1    # a given release, also an older one
+```
+
+It runs the install script of the release it installs, after checking it against that release's
+SHA256SUMS.txt. It refuses a copy of lrw that the install scripts did not put in place (a development
+build) - then say so instead of working around it.
+
+**Installing and removing** use two scripts that every release carries: one for Windows (Windows
+PowerShell or PowerShell 7) and one for macOS and Linux (bash), each native to its system and doing the
+same. They download the release build for the OS and CPU, check it against the release's SHA256SUMS.txt,
+put it on PATH and, with Claude Code installed, register the MCP server `lrw` and add this skill from the
+same release. No administrator rights, no .NET.
 
 ```
 # Windows (PowerShell)
-$lrw = 'https://raw.githubusercontent.com/JustDimus/linux-remote-worker/main/scripts/install-cli.ps1'
-irm $lrw | iex                                      # install, or update when installed
+$lrw = 'https://github.com/JustDimus/linux-remote-worker/releases/latest/download/install-cli.ps1'
+irm $lrw | iex                                      # install (or update; also connects a newly installed Claude Code)
 & ([scriptblock]::Create((irm $lrw))) -Status        # installed version, newest release, PATH, MCP, skill
 & ([scriptblock]::Create((irm $lrw))) -Uninstall     # remove program, PATH entry, MCP registration, skill
 
 # macOS, Linux (bash)
-lrw_sh=https://raw.githubusercontent.com/JustDimus/linux-remote-worker/main/scripts/install-cli.sh
-curl -fsSL "$lrw_sh" | bash                          # install, or update when installed (wget -qO- works too)
+lrw_sh=https://github.com/JustDimus/linux-remote-worker/releases/latest/download/install-cli.sh
+curl -fsSL "$lrw_sh" | bash                          # install (wget -qO- works too)
 curl -fsSL "$lrw_sh" | bash -s -- --status
 curl -fsSL "$lrw_sh" | bash -s -- --uninstall
 ```
 
-Options, the same in both: `-Version`/`--version <tag>`, `-McpProfile`/`--mcp-profile <name>`,
-`-NoMcp`/`--no-mcp`, `-NoSkill`/`--no-skill`, `-NoPath`/`--no-path`, `-Force`/`--force`.
+Options, the same in both scripts: `-Version`/`--version <tag>`, `-McpProfile`/`--mcp-profile <name>`,
+`-NoMcp`/`--no-mcp`, `-NoSkill`/`--no-skill`, `-NoPath`/`--no-path`, `-Force`/`--force`. `lrw update`
+takes `--no-mcp`, `--no-skill`, `--mcp-profile` and `--force` too.
 
 - Program location: `%LOCALAPPDATA%\Programs\lrw` (added to the user PATH) on Windows,
   `~/.local/share/lrw` linked as `~/.local/bin/lrw` on Linux and macOS.
 - A PATH change reaches only terminals started afterwards. In the current session call the program by
   the path the script prints.
 - The MCP registration needs the `claude` command on PATH (Claude Code used only inside an editor may
-  not have it); without it the script prints the `claude mcp add` command to run.
+  not have it); without it the script prints the `claude mcp add` command to run. A registration that
+  is already there stays as it is unless `--mcp-profile` asks for a new one.
 - A skill folder that was not added by these scripts is left alone, also on uninstall.
 - **Saved servers stay untouched.** `profiles.json` (its path is `data.profilesFile` in
   `lrw profiles list --json`) is shared with the desktop app. Uninstalling, reinstalling or updating lrw

@@ -3,12 +3,13 @@
 # Normal way: Actions → Release → Run workflow (from main), choose patch / minor / major. The workflow computes
 # the next version from Directory.Build.props, runs the unit tests, builds lrw for every platform and the
 # Windows app installer, and only when all of that worked commits the new version ("Release vX.Y.Z", in the
-# name of whoever started the run), tags it and publishes the GitHub release. If anything fails, the repository is left as it was.
-# Fallback: push a tag v<major>.<minor>.<patch> yourself - then nothing is committed.
-# Afterwards the published release is installed with scripts/install-cli.* on Ubuntu, macOS and Windows.
+# name of whoever started the run), tags it and publishes the GitHub release. If anything fails, the repository
+# is left as it was. Fallback: push a tag v<major>.<minor>.<patch> yourself - then nothing is committed.
+# Afterwards the published release is installed with its own install scripts on Ubuntu, macOS and Windows.
 #
-# Assets: lrw-<rid>.zip / .tar.gz (one self-contained executable each), lrw-skill.tar.gz (the Claude Code skill)
-# and version.txt (the version, read through releases/latest/download/version.txt) for scripts/install-cli.*;
+# Assets: install-cli.ps1 / install-cli.sh (the install scripts; the documented one-liners and lrw update run these
+# copies), lrw-<rid>.zip / .tar.gz (one self-contained executable each), lrw-skill.tar.gz (the Claude Code skill)
+# and version.txt (the version, read through releases/latest/download/version.txt);
 # the app's Velopack files (LinuxRemoteWorker-win-Setup.exe for a first install, the full .nupkg and
 # releases.win.json for automatic updates), LinuxRemoteWorker-update.sig.json - the update's hash signed with the
 # UPDATE_SIGNING_KEY secret, which installed apps check before updating - and SHA256SUMS.txt over all of them.
@@ -194,11 +195,12 @@ jobs:
             > dist/LinuxRemoteWorker-update.sig.json
           cat dist/LinuxRemoteWorker-update.sig.json
 
-      - name: Version file and skill package
+      - name: Install files (version, scripts, skill package)
         shell: bash
         run: |
           set -euo pipefail
           printf '%s\n' "$VERSION" > dist/version.txt
+          cp scripts/install-cli.ps1 scripts/install-cli.sh dist/
           tar -czf dist/lrw-skill.tar.gz -C skill .
           tar -tzf dist/lrw-skill.tar.gz
 
@@ -236,3 +238,5 @@ jobs:
     name: verify install
     needs: release
     uses: ./.github/workflows/install-scripts.yml
+    with:
+      release: true

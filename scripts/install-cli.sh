@@ -2,8 +2,8 @@
 # Installs, updates, checks or removes lrw - the command line of Linux Remote Worker - on macOS and Linux (Ubuntu and
 # others), together with its MCP server and skill for Claude Code. Plain bash: no root, no .NET, no clone.
 #
-#   curl -fsSL https://raw.githubusercontent.com/JustDimus/linux-remote-worker/main/scripts/install-cli.sh | bash
-#   wget -qO-  https://raw.githubusercontent.com/JustDimus/linux-remote-worker/main/scripts/install-cli.sh | bash
+#   curl -fsSL https://github.com/JustDimus/linux-remote-worker/releases/latest/download/install-cli.sh | bash
+#   wget -qO-  https://github.com/JustDimus/linux-remote-worker/releases/latest/download/install-cli.sh | bash
 #
 # Options (piped: "| bash -s -- <options>"):
 #   --status              show what is installed and whether an update exists
@@ -208,6 +208,11 @@ register_mcp() {
   local manual="claude mcp add --scope user lrw -- \"$EXE\" mcp${PROFILE:+ --profile $PROFILE}"
   if ! command -v claude >/dev/null 2>&1; then
     echo "The claude command is not on PATH - register the MCP server with: $manual"
+    return
+  fi
+  # The program path never changes, so a registration made earlier (maybe with a profile) stays as it is
+  if [ -z "$PROFILE" ] && mcp_points_here; then
+    echo "The MCP server 'lrw' is already registered in Claude Code."
     return
   fi
   claude mcp remove lrw --scope user </dev/null >/dev/null 2>&1 || true

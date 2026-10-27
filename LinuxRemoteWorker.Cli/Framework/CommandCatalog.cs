@@ -65,7 +65,8 @@ public sealed class CommandSpec
     public required MethodInfo Method { get; init; }
     public required IReadOnlyList<ParameterSpec> Parameters { get; init; }
 
-    public string FullPath => $"{Group} {Path}";
+    /// <summary>"nginx sites create"; just the group name for a command with an empty path ("update").</summary>
+    public string FullPath => Path.Length == 0 ? Group : $"{Group} {Path}";
 
     /// <summary>MCP tool name: "nginx sites create" → "nginx_sites_create".</summary>
     public string ToolName => FullPath.Replace(' ', '_').Replace('-', '_');
