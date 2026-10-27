@@ -20,10 +20,12 @@
 #   ~/.local/share/lrw/lrw, linked as ~/.local/bin/lrw (added to PATH in the shell profile when missing). Run it again
 #   to update; the program is replaced by a rename, so a running lrw keeps working until it restarts.
 # - Claude Code, when installed: lrw is registered as the MCP server "lrw" (this needs the claude command on PATH),
-#   and the linux-remote-worker skill of the same release goes to ~/.claude/skills (CLAUDE_CONFIG_DIR is honoured).
-#   A skill put there some other way is left alone.
+#   and the release's skill package (lrw-skill.tar.gz, checked the same way) goes to
+#   ~/.claude/skills/linux-remote-worker (CLAUDE_CONFIG_DIR is honoured). A skill put there some other way is left
+#   alone.
 # - --uninstall removes all of that; saved servers and logs stay.
-# Everything runs inside main, so a download cut short executes nothing.
+# The newest version comes from releases/latest/download/version.txt, GitHub's permanent link to a file of the
+# newest release. Everything runs inside main, so a download cut short executes nothing.
 set -euo pipefail
 
 REPO="JustDimus/linux-remote-worker"
@@ -64,9 +66,24 @@ has_claude() { command -v claude >/dev/null 2>&1 || [ -d "$CLAUDE_DIR" ]; }
 
 installed_version() { "$EXE" version --text </dev/null 2>/dev/null || true; }
 
-# Empty when GitHub cannot be asked
+# The newest release's tag, empty when GitHub cannot be asked
 latest_tag() {
-  fetch "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' || true
+  local version
+  version=$(fetch "https://github.com/$REPO/releases/latest/download/version.txt" 2>/dev/null | tr -d '[:space:]') || true
+  case "$version" in [0-9]*.[0-9]*.[0-9]*) echo "v$version" ;; esac
+}
+
+# download_release <file> - a file of release $TAG into $WORK, checked against the release's SHA256SUMS.txt.
+# Returns 1 when it cannot be downloaded, 2 when it does not match.
+download_release() {
+  local file="$1" expected
+  [ -n "$WORK" ] || WORK=$(mktemp -d)
+  if [ ! -s "$WORK/SHA256SUMS.txt" ]; then
+    fetch "https://github.com/$REPO/releases/download/$TAG/SHA256SUMS.txt" "$WORK/SHA256SUMS.txt" 2>/dev/null || return 1
+  fi
+  fetch "https://github.com/$REPO/releases/download/$TAG/$file" "$WORK/$file" 2>/dev/null || return 1
+  expected=$(awk -v f="$file" '$2 == f || $2 == "*" f { print $1 }' "$WORK/SHA256SUMS.txt")
+  { [ -n "$expected" ] && [ "$(sha256 "$WORK/$file")" = "$expected" ]; } || return 2
 }
 
 mcp_points_here() { claude mcp get lrw </dev/null 2>/dev/null | grep -qF "$INSTALL_DIR"; }
@@ -125,7 +142,7 @@ show_status() {
 
 # Sets TAG to the release that is installed now
 install_lrw() {
-  local rid current archive expected
+  local rid current archive
   rid=$(platform)
   TAG=${VERSION:-$(latest_tag)}
   [ -n "$TAG" ] || fail "could not ask GitHub for the newest release of $REPO"
@@ -137,16 +154,12 @@ install_lrw() {
     return
   fi
 
-  WORK=$(mktemp -d)
   archive="lrw-$rid.tar.gz"
   echo "Downloading lrw $TAG for $rid..."
-  fetch "https://github.com/$REPO/releases/download/$TAG/$archive" "$WORK/$archive" ||
+  download_release "$archive" || {
+    [ $? = 2 ] && fail "$archive does not match SHA256SUMS.txt of $TAG - nothing was installed"
     fail "could not download $archive of $TAG"
-  fetch "https://github.com/$REPO/releases/download/$TAG/SHA256SUMS.txt" "$WORK/SHA256SUMS.txt" ||
-    fail "could not download SHA256SUMS.txt of $TAG"
-  expected=$(awk -v f="$archive" '$2 == f || $2 == "*" f { print $1 }' "$WORK/SHA256SUMS.txt")
-  [ -n "$expected" ] || fail "$archive is not listed in SHA256SUMS.txt of $TAG"
-  [ "$(sha256 "$WORK/$archive")" = "$expected" ] || fail "$archive does not match SHA256SUMS.txt - nothing was installed"
+  }
 
   # Unpacked next to the program and renamed into place: works even while lrw is running
   mkdir -p "$INSTALL_DIR"
@@ -205,28 +218,26 @@ register_mcp() {
   fi
 }
 
-# The skill's files from the release lrw came from, so its instructions match the program
+# The skill package of the release lrw came from, so its instructions match the program
 install_skill() {
-  local file folder new saved
+  local new rc=0
   if [ -d "$SKILL_DIR" ] && [ ! -f "$SKILL_DIR/$SKILL_MARK" ]; then
     echo "A linux-remote-worker skill is already in $SKILL_DIR (not from this script) - left alone."
     return
   fi
-  [ -n "$WORK" ] || WORK=$(mktemp -d)
+  download_release lrw-skill.tar.gz || rc=$?
+  if [ "$rc" = 1 ]; then
+    echo "warning: could not download lrw-skill.tar.gz of $TAG (older releases have none) - the skill was not added." >&2
+    return
+  elif [ "$rc" = 2 ]; then
+    echo "warning: lrw-skill.tar.gz does not match SHA256SUMS.txt of $TAG - the skill was not added." >&2
+    return
+  fi
   new="$WORK/skill"
+  rm -rf "$new"
   mkdir -p "$new"
-  for file in SKILL.md reference.md; do
-    # Releases up to v0.1.1 kept the skill in .claude/skills/linux-remote-worker
-    saved=0
-    for folder in skill .claude/skills/linux-remote-worker; do
-      if fetch "https://raw.githubusercontent.com/$REPO/$TAG/$folder/$file" "$new/$file" 2>/dev/null; then saved=1; break; fi
-    done
-    if [ "$saved" = 0 ]; then
-      echo "warning: could not download the skill's $file of $TAG - the skill was not added." >&2
-      return
-    fi
-  done
-  if ! grep -q '^name: linux-remote-worker' "$new/SKILL.md"; then
+  tar -xzf "$WORK/lrw-skill.tar.gz" -C "$new"
+  if ! grep -qs '^name: linux-remote-worker' "$new/SKILL.md"; then
     echo "warning: the downloaded SKILL.md is not the lrw skill - the skill was not added." >&2
     return
   fi

@@ -541,6 +541,11 @@ tests on Linux and Windows, builds `lrw` for six platforms and the app installer
 all of that worked commits the new version (`Release vX.Y.Z`, in your name), tags it and publishes the release. If anything
 fails, the repository stays as it was. Pushing a tag `vX.Y.Z` by hand still works and releases that exact version.
 
+Besides the builds, every release carries the Claude Code skill as `lrw-skill.tar.gz` and its version in
+`version.txt` (the install scripts read the newest one from `releases/latest/download/version.txt`), all listed
+in `SHA256SUMS.txt`. When the release is out, the workflow installs it with both install scripts on Ubuntu, macOS
+and Windows, so a release that cannot be installed shows up at once.
+
 **Once, before the first release with the app:** create the update signing key on your own computer —
 
 ```powershell

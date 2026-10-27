@@ -5,11 +5,13 @@
 # Windows app installer, and only when all of that worked commits the new version ("Release vX.Y.Z", in the
 # name of whoever started the run), tags it and publishes the GitHub release. If anything fails, the repository is left as it was.
 # Fallback: push a tag v<major>.<minor>.<patch> yourself - then nothing is committed.
+# Afterwards the published release is installed with scripts/install-cli.* on Ubuntu, macOS and Windows.
 #
-# Assets: lrw-<rid>.zip / .tar.gz (one self-contained executable each; scripts/install-cli.* download these),
+# Assets: lrw-<rid>.zip / .tar.gz (one self-contained executable each), lrw-skill.tar.gz (the Claude Code skill)
+# and version.txt (the version, read through releases/latest/download/version.txt) for scripts/install-cli.*;
 # the app's Velopack files (LinuxRemoteWorker-win-Setup.exe for a first install, the full .nupkg and
 # releases.win.json for automatic updates), LinuxRemoteWorker-update.sig.json - the update's hash signed with the
-# UPDATE_SIGNING_KEY secret, which installed apps check before updating - and SHA256SUMS.txt.
+# UPDATE_SIGNING_KEY secret, which installed apps check before updating - and SHA256SUMS.txt over all of them.
 
 name: Release
 
@@ -192,6 +194,14 @@ jobs:
             > dist/LinuxRemoteWorker-update.sig.json
           cat dist/LinuxRemoteWorker-update.sig.json
 
+      - name: Version file and skill package
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s\n' "$VERSION" > dist/version.txt
+          tar -czf dist/lrw-skill.tar.gz -C skill .
+          tar -tzf dist/lrw-skill.tar.gz
+
       - name: Checksums
         run: |
           cd dist
@@ -221,3 +231,8 @@ jobs:
             --verify-tag \
             --title "Linux Remote Worker v$VERSION" \
             --generate-notes
+
+  verify:
+    name: verify install
+    needs: release
+    uses: ./.github/workflows/install-scripts.yml

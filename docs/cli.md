@@ -73,8 +73,9 @@ script prints the `claude mcp add` command to run.
 
 **Releases** are built by [`.github/workflows/release.yml`](../.github/workflows/release.yml) (see
 *Releasing* in the README): self-contained single-file builds for win-x64, win-arm64, linux-x64,
-linux-arm64, osx-x64 and osx-arm64. [`install-scripts.yml`](../.github/workflows/install-scripts.yml)
-tries both install scripts on Ubuntu, macOS and Windows whenever they change.
+linux-arm64, osx-x64 and osx-arm64, plus the skill package `lrw-skill.tar.gz` and `version.txt`, all in
+`SHA256SUMS.txt`. [`install-scripts.yml`](../.github/workflows/install-scripts.yml) tries both install scripts
+on Ubuntu, macOS and Windows whenever they change and after every release.
 
 **Without installing:** `dotnet run --project LinuxRemoteWorker.Cli -- <arguments>`.
 

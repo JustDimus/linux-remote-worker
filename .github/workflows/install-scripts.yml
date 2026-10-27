@@ -1,8 +1,8 @@
 # Installs lrw and the Claude Code skill from the newest release with scripts/install-cli.sh (Ubuntu, macOS) and
 # scripts/install-cli.ps1 (Windows: PowerShell 7 from the file, Windows PowerShell 5.1 the way the one-liner runs
 # it), runs lrw, checks the status, runs the script again (nothing to download) and uninstalls. Each job installs
-# into throwaway folders; Claude Code itself is not there, so the MCP registration is only reported. Runs only when
-# the scripts or the skill change, or by hand.
+# into throwaway folders; Claude Code itself is not there, so the MCP registration is only reported. Runs when the
+# scripts or the skill change, at the end of every release (release.yml calls it), or by hand.
 
 name: Install scripts
 
@@ -12,6 +12,7 @@ on:
       - scripts/**
       - skill/**
       - .github/workflows/install-scripts.yml
+  workflow_call:
   workflow_dispatch:
 
 permissions:

@@ -17,10 +17,12 @@ scripts/install-cli.sh does the same on macOS and Linux:
   %LOCALAPPDATA%\Programs\lrw and onto the user PATH. Run it again to update; a running lrw (an MCP server of an
   open Claude session) is renamed out of the way and keeps working until it restarts.
 - Claude Code, when installed: lrw is registered as the MCP server "lrw" (this needs the claude command on PATH),
-  and the linux-remote-worker skill of the same release goes to %USERPROFILE%\.claude\skills (CLAUDE_CONFIG_DIR is
-  honoured). A skill put there some other way is left alone.
+  and the release's skill package (lrw-skill.tar.gz, checked the same way) goes to
+  %USERPROFILE%\.claude\skills\linux-remote-worker (CLAUDE_CONFIG_DIR is honoured). A skill put there some other way
+  is left alone.
 - -Uninstall removes all of that; saved servers and logs stay.
-Windows PowerShell 5.1 or PowerShell 7.
+The newest version comes from releases/latest/download/version.txt, GitHub's permanent link to a file of the newest
+release. Windows PowerShell 5.1 or PowerShell 7 on Windows 10 or newer.
 #>
 param(
     # Show what is installed and whether an update exists
@@ -80,13 +82,33 @@ param(
     }
 
     function Get-LatestTag {
-        try { [string](Invoke-RestMethod -UseBasicParsing -Headers $headers -Uri "https://api.github.com/repos/$repo/releases/latest").tag_name }
+        try { $content = (Invoke-WebRequest -UseBasicParsing -Headers $headers -Uri "https://github.com/$repo/releases/latest/download/version.txt").Content }
         catch { throw "Could not ask GitHub for the newest release of ${repo}: $($_.Exception.Message)" }
+        # Release files come as application/octet-stream, so the content arrives as bytes
+        $version = $(if ($content -is [byte[]]) { [Text.Encoding]::UTF8.GetString($content) } else { [string]$content }).Trim()
+        if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "The newest release of $repo has no readable version.txt." }
+        "v$version"
     }
 
     function Save-Url([string]$Uri, [string]$Path) {
         try { Invoke-WebRequest -UseBasicParsing -Headers $headers -Uri $Uri -OutFile $Path }
         catch { throw "Download failed: $Uri ($($_.Exception.Message))" }
+    }
+
+    # A file of the release in $Dir, checked against the release's SHA256SUMS.txt; returns its path
+    function Save-ReleaseFile([string]$Tag, [string]$File, [string]$Dir) {
+        $sums = Join-Path $Dir 'SHA256SUMS.txt'
+        if (-not (Test-Path -LiteralPath $sums)) { Save-Url "https://github.com/$repo/releases/download/$Tag/SHA256SUMS.txt" $sums }
+        $path = Join-Path $Dir $File
+        Save-Url "https://github.com/$repo/releases/download/$Tag/$File" $path
+        $expected = foreach ($line in Get-Content -LiteralPath $sums) {
+            if ($line -match '^([0-9a-fA-F]{64})\s+\*?(.+)$' -and $Matches[2].Trim() -eq $File) { $Matches[1] }
+        }
+        if (-not $expected) { throw "$File is not listed in SHA256SUMS.txt of $Tag." }
+        if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ne ([string]$expected).ToUpperInvariant()) {
+            throw "$File does not match SHA256SUMS.txt of $Tag - nothing was installed."
+        }
+        $path
     }
 
     # The user PATH is read and written raw, so entries like %USERPROFILE%\bin stay unexpanded
@@ -152,16 +174,8 @@ param(
         New-Item -ItemType Directory -Path $work | Out-Null
         try {
             Write-Host "Downloading lrw $tag for win-$arch..."
-            Save-Url "https://github.com/$repo/releases/download/$tag/$asset" (Join-Path $work $asset)
-            Save-Url "https://github.com/$repo/releases/download/$tag/SHA256SUMS.txt" (Join-Path $work 'SHA256SUMS.txt')
-            $expected = foreach ($line in Get-Content -LiteralPath (Join-Path $work 'SHA256SUMS.txt')) {
-                if ($line -match '^([0-9a-fA-F]{64})\s+\*?(.+)$' -and $Matches[2].Trim() -eq $asset) { $Matches[1] }
-            }
-            if (-not $expected) { throw "$asset is not listed in SHA256SUMS.txt of $tag." }
-            if ((Get-FileHash -LiteralPath (Join-Path $work $asset) -Algorithm SHA256).Hash -ne ([string]$expected).ToUpperInvariant()) {
-                throw "$asset does not match SHA256SUMS.txt - nothing was installed."
-            }
-            Expand-Archive -LiteralPath (Join-Path $work $asset) -DestinationPath (Join-Path $work 'lrw')
+            $archive = Save-ReleaseFile $tag $asset $work
+            Expand-Archive -LiteralPath $archive -DestinationPath (Join-Path $work 'lrw')
             if (-not (Test-Path -LiteralPath (Join-Path $work 'lrw\lrw.exe'))) { throw "$asset does not contain lrw.exe." }
 
             New-Item -ItemType Directory -Force -Path $installDir | Out-Null
@@ -203,24 +217,23 @@ param(
         else { Write-Warning "claude mcp add failed - run it by hand: $manual`n$($result.Output)" }
     }
 
-    # The skill's files from the release lrw came from, so its instructions match the program
+    # The skill package of the release lrw came from, so its instructions match the program
     function Install-Skill([string]$Tag) {
         if ((Test-Path -LiteralPath $skillDir) -and -not (Test-Path -LiteralPath (Join-Path $skillDir $skillMark))) {
             Write-Host "A linux-remote-worker skill is already in $skillDir (not from this script) - left alone."
             return
         }
+        $work = Join-Path ([IO.Path]::GetTempPath()) "lrw-skill-$([guid]::NewGuid().ToString('N'))"
         $new = "$skillDir.new-$([guid]::NewGuid().ToString('N'))"   # next to it, so the final move is a rename
         try {
-            New-Item -ItemType Directory -Force -Path $new | Out-Null
-            foreach ($file in 'SKILL.md', 'reference.md') {
-                # Releases up to v0.1.1 kept the skill in .claude/skills/linux-remote-worker
-                $saved = $false
-                foreach ($folder in 'skill', '.claude/skills/linux-remote-worker') {
-                    try { Save-Url "https://raw.githubusercontent.com/$repo/$Tag/$folder/$file" (Join-Path $new $file); $saved = $true; break }
-                    catch { }
-                }
-                if (-not $saved) { throw "could not download the skill's $file of $Tag" }
-            }
+            New-Item -ItemType Directory -Force -Path $work, $new | Out-Null
+            try { $archive = Save-ReleaseFile $Tag 'lrw-skill.tar.gz' $work }
+            catch { throw "lrw-skill.tar.gz of $Tag is not usable (older releases have none): $($_.Exception.Message)" }
+            # tar.exe comes with Windows 10 1803 and newer
+            $tar = Join-Path $env:SystemRoot 'System32\tar.exe'
+            if (-not (Test-Path -LiteralPath $tar)) { throw "$tar is missing - Windows 10 1803 or newer is needed" }
+            $unpacked = Invoke-Tool $tar @('-xzf', $archive, '-C', $new)
+            if ($unpacked.ExitCode -ne 0) { throw "could not unpack lrw-skill.tar.gz: $($unpacked.Output)" }
             if (-not (Select-String -LiteralPath (Join-Path $new 'SKILL.md') -Pattern '^name: linux-remote-worker' -Quiet)) {
                 throw 'the downloaded SKILL.md is not the lrw skill'
             }
@@ -230,7 +243,7 @@ param(
             Write-Host "Added the Claude Code skill: $skillDir."
         }
         catch { Write-Warning "The skill was not added: $($_.Exception.Message)" }
-        finally { Remove-Item -LiteralPath $new -Recurse -Force -ErrorAction SilentlyContinue }
+        finally { Remove-Item -LiteralPath $new, $work -Recurse -Force -ErrorAction SilentlyContinue }
     }
 
     function Uninstall-Lrw {
