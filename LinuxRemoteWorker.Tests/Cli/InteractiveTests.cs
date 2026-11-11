@@ -296,7 +296,7 @@ public class InteractiveScreensTests
         Assert.Single(server.CallsOf("connection test"));
         foreach (var module in new[] { "System", "Services", "PostgreSQL", "Nginx", "Firewall", "Security", "Logs" })
             Assert.Contains(module, screen);
-        Assert.Contains("lrw 0.2.3 - prod (root@203.0.113.10)", screen);
+        Assert.Contains($"lrw {HelpWriter.Version} - prod (root@203.0.113.10)", screen);
     }
 
     [Fact]
