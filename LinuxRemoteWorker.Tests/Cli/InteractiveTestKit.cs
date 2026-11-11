@@ -113,6 +113,11 @@ internal sealed class InteractiveScript
     /// <summary>What lrw interactive returned, once <see cref="Run"/> is done.</summary>
     public int ExitCode { get; private set; }
 
+    // The virtual screen keeps the size the test gives it. By default the driver polls the real console for its size
+    // (Console.WindowWidth/Height) and takes that over: a CI runner has a console (here 30 rows) where a local test
+    // run has none. Asked over ANSI instead, nobody answers in a test, so the size stays the test's.
+    static InteractiveScript() => Driver.SizeDetection = SizeDetectionMode.AnsiQuery;
+
     public InteractiveScript Press(Key key, int times = 1)
     {
         // A fresh key each time: a handler marks the key it got as handled, and a handled key is not pressed again
