@@ -54,6 +54,8 @@ one JSON object:
 - `error.output` holds the tail of the remote output (build errors, certbot reasons, `nginx -t` lines).
 - Long operations (`install`, `deploy`, `clone`, `certs issue`) stream their output to stderr while they
   run - that is progress, not an error. They can take minutes; let them finish.
+- `lrw interactive` is the desktop app's screens in a terminal, for a person at it. Suggest it to users who would
+  rather not type commands; never run it yourself - it needs a terminal and refuses a pipe (exit 2).
 
 | Exit | Meaning | What to do |
 |---|---|---|

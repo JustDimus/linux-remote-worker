@@ -22,6 +22,24 @@ public static class HelpWriter
           -h, --help                Help for whatever comes before it
         """;
 
+    public const string InteractiveText =
+        """
+        lrw interactive
+
+          The desktop app's screens in a terminal. Connect to a saved server, then each
+          module shows what the server has (load and disks, services, nginx sites, databases, firewall rules, keys)
+          with buttons that run the same commands on the selected row; unit files and nginx configs are edited in
+          place. All commands reaches every other command through a form that shows the command line it adds up
+          to. Destructive commands ask first; one SSH connection serves the whole session.
+
+        Usage: lrw interactive [--profile <name> | --host <ip> --key <path>]
+               With a server named, it connects to it right away.
+
+        Keys:  Enter or Tab go into a module's screen   in a table: Up/Down the row, Left/Right the action,
+               Enter runs it   Up from the first row: the menu on top   Esc back (stops a running command;
+               from the modules it leaves)   Alt+underlined letter press a button   / searches every command
+        """;
+
     public static void WriteRoot(CommandCatalog catalog, TextWriter w)
     {
         w.WriteLine($"lrw {Version} - Linux Remote Worker on the command line");
@@ -35,6 +53,7 @@ public static class HelpWriter
             w.WriteLine($"  {g.Name.PadRight(width)}  {g.Description}");
         w.WriteLine();
         w.WriteLine("Other commands:");
+        w.WriteLine("  interactive              The app's screens in the terminal: server data, buttons, forms, editor");
         w.WriteLine("  help [group [command]]   This help, or help for a group or command");
         w.WriteLine("  schema [group]           Every command and parameter as JSON (for agents and tools)");
         w.WriteLine("  mcp                      Serve every command as an MCP tool over stdio");

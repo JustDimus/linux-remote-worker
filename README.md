@@ -13,7 +13,7 @@ One engine, three ways to use it:
 | | What it is | Runs on |
 |---|---|---|
 | **Desktop app** | A screen per job: connect, pick a module, fill in a form | Windows 10+; installs and updates itself |
-| **`lrw`** | The same operations on the command line: tables at a terminal, JSON for scripts | Windows, macOS, Linux (x64, arm64) |
+| **`lrw`** | The same operations on the command line: tables at a terminal, JSON for scripts, the app's screens with `lrw interactive` | Windows, macOS, Linux (x64, arm64) |
 | **Claude** | `lrw` as an MCP server plus a skill: ask Claude to deploy, check or fix a server | Claude Code, or any MCP client |
 
 <p align="left">
@@ -21,7 +21,7 @@ One engine, three ways to use it:
   <img alt="Desktop app: Windows 10+" src="https://img.shields.io/badge/app-Windows%2010%2B-0078D4">
   <img alt="lrw: Windows, macOS, Linux" src="https://img.shields.io/badge/lrw-Windows%20%7C%20macOS%20%7C%20Linux-6CCF97">
   <img alt="Claude skill and MCP server" src="https://img.shields.io/badge/AI-Claude%20skill%20%2B%20MCP-D97757">
-  <img alt=".NET 8" src="https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet&logoColor=white">
+  <img alt=".NET 10" src="https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
 </p>
 
@@ -496,7 +496,16 @@ lrw logs journal shop-api --since "1 hour ago"
 ```
 
 On a terminal it prints tables; piped, it prints one JSON result per command with stable exit codes —
-the form agents need. For Claude:
+the form agents need.
+
+**`lrw interactive`** is the desktop app's screens in a terminal: connect to a saved server, and the modules
+appear - the machine's load and disks, services with Start / Restart / Redeploy / Edit unit, nginx sites, databases,
+firewall rules, keys - each with buttons that run the same commands as the command line on the selected row. Unit
+files and nginx configs are edited in place and saved through the command that tests and applies them; All commands
+reaches everything else through a form that shows the command line it adds up to. Details:
+[docs/cli.md](docs/cli.md#interactive-mode).
+
+For Claude:
 
 - **Skill** — [`skill/`](skill/SKILL.md) teaches Claude the workflows and the safety rules (never confirm
   a destructive action on its own) and how to install, update and remove lrw. The install scripts put it
@@ -575,6 +584,8 @@ reinstalled once from a Setup.exe.
 
 ## Building from source
 
+Needs the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0).
+
 ```powershell
 git clone https://github.com/<you>/linux-remote-worker.git
 cd linux-remote-worker
@@ -585,7 +596,7 @@ dotnet run --project LinuxRemoteWorker.Cli -- help      # the command line
 dotnet test                                             # unit tests (no server needed)
 ```
 
-The unit tests also run on every push (`.github/workflows/tests.yml`, Linux and Windows).
+The unit tests also run on every pull request and every push to main (`.github/workflows/tests.yml`, Linux and Windows).
 
 ### Dependencies
 
@@ -594,13 +605,14 @@ The unit tests also run on every push (`.github/workflows/tests.yml`, Linux and 
 | [SSH.NET](https://github.com/sshnet/SSH.NET) | SSH and SFTP transport |
 | [CommunityToolkit.Mvvm](https://github.com/CommunityToolkit/dotnet) | Source-generated `ObservableObject` and `RelayCommand` |
 | [Velopack](https://github.com/velopack/velopack) | Installer and automatic updates of the desktop app from GitHub releases |
+| [Terminal.Gui](https://github.com/tui-cs/Terminal.Gui) | The windows, lists and forms of `lrw interactive` |
 
 ---
 
 ## Project layout
 
 ```
-LinuxRemoteWorker.Core/            net8.0 library, no UI — everything that talks to a server
+LinuxRemoteWorker.Core/            net10.0 library, no UI — everything that talks to a server
 ├── Core/
 │   ├── AppLog.cs                  Thread-safe file logger (app- / cli- / mcp- files), in-memory tail, retention
 │   ├── ConnectionDiagnostics.cs   Preflight checks + exception → plain-language problem
@@ -632,12 +644,14 @@ LinuxRemoteWorker/                 WPF desktop app
 LinuxRemoteWorker.Cli/             lrw.exe — command line and MCP server (see docs/cli.md)
 ├── Framework/                     Command catalog, parser, invoker, help/schema, text output
 ├── Session/                       Server selection, lazy SSH connection, cli.json
+├── Interactive/                   lrw interactive: Terminal.Gui windows and forms over the same catalog
 ├── Mcp/McpServer.cs               MCP over stdio, generated from the same catalog
 └── Commands/                      One class per command group, thin adapters over the Core services
-LinuxRemoteWorker.Tests/           xUnit tests: git sources and releases, generated scripts, parsing, ports, CLI options
+LinuxRemoteWorker.Tests/           xUnit tests: git sources and releases, generated scripts, parsing, ports, CLI options,
+                                   lrw interactive driven by key presses on a virtual screen
 skill/                             Claude skill for operating servers with lrw (SKILL.md, reference.md)
 .github/workflows/release.yml      Release: bump version, test, build lrw + the app installer, sign the update, publish
-.github/workflows/tests.yml        Unit tests on every push and pull request (Linux and Windows)
+.github/workflows/tests.yml        Unit tests on pull requests and pushes to main (Linux and Windows)
 .github/workflows/install-scripts.yml  Tries the install scripts on Ubuntu, macOS and Windows when they change
 scripts/                           Install, update, status and removal of lrw + MCP + skill: install-cli.ps1 (Windows), install-cli.sh (macOS, Linux)
 tools/                             Release helpers: next-version.sh, sign-update.sh, new-update-signing-key.ps1
@@ -751,6 +765,7 @@ That file is designed to answer this question.
 - [x] Let's Encrypt certificate management
 - [x] Command line (`lrw`), Claude skill and MCP server
 - [x] One-line install and `lrw update` on Windows, macOS and Linux
+- [x] `lrw interactive`: the app's screens in a terminal
 - [ ] Docker container module
 - [ ] Scheduled backups for PostgreSQL databases
 

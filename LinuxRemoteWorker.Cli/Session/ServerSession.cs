@@ -18,6 +18,7 @@ public sealed class ServerSession : IDisposable
     // Set while no server may be used, e.g. after a failed switch: falling back to the default server
     // would run the next command on a machine the caller did not mean
     private string? _unselectedReason;
+    private string _unselectedHelp = "connection use";
 
     /// <param name="resolveDefault">Picks the server when none was chosen explicitly; may throw <see cref="UsageException"/>.</param>
     public ServerSession(Func<ConnectionTarget> resolveDefault)
@@ -39,10 +40,13 @@ public sealed class ServerSession : IDisposable
     {
         get
         {
-            if (_unselectedReason != null) throw new UsageException(_unselectedReason, "connection use");
+            if (_unselectedReason != null) throw new UsageException(_unselectedReason, _unselectedHelp);
             return _target ??= _resolveDefault();
         }
     }
+
+    /// <summary>The server chosen so far, without resolving the default; null when there is none yet.</summary>
+    public ConnectionTarget? Selected => _unselectedReason == null ? _target : null;
 
     /// <summary>Switches to another server; the next command connects to it.</summary>
     public void Use(ConnectionTarget target)
@@ -57,11 +61,13 @@ public sealed class ServerSession : IDisposable
     /// Drops the current server and refuses every command until <see cref="Use"/> picks one, instead of
     /// falling back to the default server.
     /// </summary>
-    public void Unselect(string reason)
+    /// <param name="helpPath">What the refusal points to after "lrw help".</param>
+    public void Unselect(string reason, string helpPath = "connection use")
     {
         Disconnect();
         _target = null;
         _unselectedReason = reason;
+        _unselectedHelp = helpPath;
         AppLog.Info($"Session has no server: {reason}");
     }
 

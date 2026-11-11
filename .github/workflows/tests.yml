@@ -1,4 +1,5 @@
-# Unit tests on every push to a branch and every pull request; the release workflow runs the same job first.
+# Unit tests on every pull request and every push to main; the release workflow runs the same job first. A push to
+# another branch runs nothing by itself (its pull request does), and a branch without one can be tested by hand.
 #
 # Linux runs the script tests with /bin/bash; Windows runs them with Git Bash (LRW_BASH) and also covers
 # what only exists there, such as passwords saved with DPAPI. Nothing here connects to a server.
@@ -7,9 +8,10 @@ name: Tests
 
 on:
   push:
-    branches: ['**']
+    branches: [main]
   pull_request:
   workflow_call:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -31,7 +33,7 @@ jobs:
 
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: 8.0.x
+          dotnet-version: 10.0.x
 
       - name: Test
         run: dotnet test LinuxRemoteWorker.Tests/LinuxRemoteWorker.Tests.csproj -c Release --logger "console;verbosity=normal"
