@@ -22,6 +22,7 @@ HTTPS is on for shop.example.com
 
 - [Install](#install)
 - [Quick start](#quick-start)
+- [Interactive mode](#interactive-mode)
 - [Choosing the server](#choosing-the-server)
 - [Output and exit codes](#output-and-exit-codes)
 - [Safety](#safety)
@@ -115,6 +116,61 @@ lrw help nginx sites create
 ```
 
 Profiles added in the desktop app show up here and vice versa.
+
+## Interactive mode
+
+```bash
+lrw interactive                  # or: lrw --profile prod interactive (connects right away)
+```
+
+The desktop app's screens in a terminal, for when you would rather not remember commands and options. On the left:
+the server this session is connected to, and the modules. It starts on **Connection** - the saved servers; Enter (or
+Connect) logs in to one and tests the connection, and only then do the server's modules appear: System, Services,
+Repositories, .NET SDK, PostgreSQL, Nginx, Certificates, Firewall, Security and Logs. **All commands** and the
+**App log** are always there.
+
+On the right, the selected module shows what the server has - the machine's load, memory, disk and addresses, the
+deployed services with their state and version, the nginx sites, the databases and roles, the firewall rules, the
+keys that may log in. On top, the module's menu (Refresh, Deploy..., New site..., Add rule...); under a table, the
+actions for its selected row (Status, Restart, Edit unit, Enable, Delete ...). The focus stays in the table: Up and
+Down pick the row, Left and Right pick the action (it is lit), Enter runs it - the first action, the safe one, is
+picked at the start. An action runs the same command as the command line, filled in with the selected row; when
+the command needs more, its form opens first. After every action the screen reads the server again, and the status
+line at the bottom says how it went.
+
+**Editing in place.** Edit unit (Services), Edit and nginx.conf (Nginx) open the file of the server in an editor.
+Save writes it with the command that tests and applies it - the unit is reloaded and the service restarted, an nginx
+change is kept only when `nginx -t` passes. When that is refused, the reason shows under the text and the editor
+stays open, so the mistake can be fixed and saved again.
+
+**All commands** lists every command, searchable (typing anywhere in the window lands there). Enter opens a
+command's form: one field per option (text, a switch, a choice, a few lines for config text and SQL), with what the
+focused field is for and the command line the form adds up to (`$ lrw nginx sites create --domains
+shop.example.com`), so the screens teach the commands too. Run checks every value the way the command line does
+and keeps the form open, with the reason, while one is wrong. The result window shows the server's output as it
+comes, then the same result the command line prints.
+
+| Key | |
+|---|---|
+| Enter or Tab | from the modules into the screen (onto its table) |
+| ↑ ↓ in a table | pick the row; Up on the first row goes to the menu on top |
+| ← → in a table | pick the action for the row (it is lit); Enter runs it |
+| ← → in the menu on top | along its buttons; Enter presses one, Down goes back to the table |
+| Tab | the next table, menu button or field; the arrows never cross between the modules and the screen |
+| Alt + underlined letter | press that button |
+| / (or Ctrl+F) | search every command, from anywhere - in a text field / is just text; Ctrl+F does not reach lrw in VS Code. In All commands, Up from the first command goes to the search too |
+| typing in the modules list | starts the same search |
+| Esc | back: from a screen to the modules, out of a form or editor; stops a running command; from the modules it leaves |
+
+Destructive commands ask before they run, with **No** focused and as the default, so Enter never runs one by
+accident. A password or key passphrase the server asks for is typed into a dialog and kept for the session only.
+One SSH connection serves the whole session and runs one command at a time; every action goes to the app log with
+its command line (secrets as `***`).
+
+It needs a terminal: with redirected input or output it refuses, exit code 2 - scripts and agents call the
+commands themselves. It is built with [Terminal.Gui](https://github.com/tui-cs/Terminal.Gui) over the same catalog as
+the commands, help and MCP tools. The frames and marks use characters every monospace font has, so it looks the same
+in Windows Terminal, the classic console window, VS Code, macOS Terminal and Linux terminals.
 
 ## Choosing the server
 
@@ -276,7 +332,7 @@ nowhere (a tag or commit). Updates refuse to touch files changed on the server o
 ## How it is built
 
 ```
-LinuxRemoteWorker.Core/        net8.0 library: SSH, server layout, one service per module
+LinuxRemoteWorker.Core/        net10.0 library: SSH, server layout, one service per module
   Core/                        SshService, AppLog, Shell, DeployPaths, ConnectionDiagnostics, OperationException …
   Modules/<Module>/            NginxService, CertbotService, PostgresService, FirewallService,
                                RepositoryService, AppServiceManager, DotnetSdkService, ServerLogService, SystemInfoService
@@ -284,6 +340,7 @@ LinuxRemoteWorker/             WPF app — view-models call the Core services
 LinuxRemoteWorker.Cli/         lrw.exe
   Framework/                   catalog (reflection), parser, invoker, help/schema, text rendering
   Session/                     server selection, lazy SSH connection, cli.json
+  Interactive/                 lrw interactive: Terminal.Gui windows and forms over the same catalog
   Mcp/McpServer.cs             MCP over stdio, generated from the same catalog
   Commands/<Group>Commands.cs  the commands — thin adapters over the Core services
 ```
@@ -299,8 +356,8 @@ public sealed class ServiceCommands : CommandSet
 }
 ```
 
-Its parameters become CLI options (`--max-body` from `maxBody`), MCP input properties and `lrw schema`
-entries; `Destructive = true` adds the `--yes` / `confirm` gate; the return value becomes `data`
+Its parameters become CLI options (`--max-body` from `maxBody`), MCP input properties, `lrw schema`
+entries and the fields of its form in `lrw interactive`; `Destructive = true` adds the `--yes` / `confirm` gate; the return value becomes `data`
 (or `Outcome` adds a message, warning or output). Services throw `OperationException` with a
 `FailureKind` (Invalid / Refused / NotFound / Failed), which picks the exit code. The desktop app shows
 the same exceptions' messages in its status line, so both front ends report failures identically.

@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json.Nodes;
 using LinuxRemoteWorker.Cli.Framework;
+using LinuxRemoteWorker.Cli.Interactive;
 using LinuxRemoteWorker.Cli.Mcp;
 using LinuxRemoteWorker.Cli.Session;
 using LinuxRemoteWorker.Cli.Update;
@@ -46,6 +47,11 @@ internal static class Program
                 AppLog.Source = "mcp";
                 AppLog.CleanupOldFiles();
                 return await McpServer.RunAsync(catalog, parsed.Globals.Connection);
+            case "interactive" when parsed.Globals.Help:
+                Console.WriteLine(HelpWriter.InteractiveText);
+                return ExitCodes.Ok;
+            case "interactive":
+                return await InteractiveApp.RunAsync(catalog, parsed.Globals.Connection);
         }
 
         if (parsed.Command == null)
@@ -106,6 +112,12 @@ internal static class Program
         if (words.Count == 0)
         {
             HelpWriter.WriteRoot(catalog, Console.Out);
+            return ExitCodes.Ok;
+        }
+
+        if (words is ["interactive"])
+        {
+            Console.WriteLine(HelpWriter.InteractiveText);
             return ExitCodes.Ok;
         }
 

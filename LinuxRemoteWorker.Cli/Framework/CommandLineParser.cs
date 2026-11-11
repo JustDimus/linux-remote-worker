@@ -37,7 +37,7 @@ public sealed class ParsedCommandLine
 /// </summary>
 public static class CommandLineParser
 {
-    public static readonly string[] Builtins = ["help", "version", "schema", "mcp"];
+    public static readonly string[] Builtins = ["help", "version", "schema", "mcp", "interactive"];
 
     private static readonly Dictionary<string, Action<GlobalOptions, string>> ValueGlobals = new()
     {
