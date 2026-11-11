@@ -64,6 +64,7 @@ public sealed class UpdateCommands : CommandSet
             Lines($"Checking {script} of {ReleaseChannel.Tag(target)} against its SHA256SUMS.txt...");
             var downloaded = await DownloadAsync(channel, target, script, folder.FullName, ct);
             var arguments = ScriptArguments(OperatingSystem.IsWindows(), target, force, mcpProfile, mcp, skill, path);
+            LoadAhead.Everything(); // the script replaces the program file; nothing may be read from it after that
             var exitCode = await RunScriptAsync(downloaded, arguments, ct);
             if (exitCode != 0) throw OperationException.Failed($"The install script stopped with exit code {exitCode} - see its output above.");
         }

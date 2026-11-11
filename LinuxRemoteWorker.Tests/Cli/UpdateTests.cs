@@ -144,6 +144,21 @@ public class UpdateNotifierTests
     }
 }
 
+public class LoadAheadTests
+{
+    [Fact]
+    public void Everything_the_program_refers_to_is_loaded_before_an_update_replaces_it()
+    {
+        LoadAhead.Everything();
+
+        // What lrw needs when the program file is no longer its own: SSH.NET for classifying an error, the interactive UI
+        var loaded = AppDomain.CurrentDomain.GetAssemblies().Select(a => a.GetName().Name).ToHashSet();
+        Assert.Contains("Renci.SshNet", loaded);
+        Assert.Contains("Terminal.Gui", loaded);
+        Assert.Contains("System.Text.Json", loaded);
+    }
+}
+
 public class InstallLocationTests
 {
     [Fact]
