@@ -596,7 +596,7 @@ dotnet run --project LinuxRemoteWorker.Cli -- help      # the command line
 dotnet test                                             # unit tests (no server needed)
 ```
 
-The unit tests also run on every push (`.github/workflows/tests.yml`, Linux and Windows).
+The unit tests also run on every pull request and every push to main (`.github/workflows/tests.yml`, Linux and Windows).
 
 ### Dependencies
 
@@ -651,7 +651,7 @@ LinuxRemoteWorker.Tests/           xUnit tests: git sources and releases, genera
                                    lrw interactive driven by key presses on a virtual screen
 skill/                             Claude skill for operating servers with lrw (SKILL.md, reference.md)
 .github/workflows/release.yml      Release: bump version, test, build lrw + the app installer, sign the update, publish
-.github/workflows/tests.yml        Unit tests on every push and pull request (Linux and Windows)
+.github/workflows/tests.yml        Unit tests on pull requests and pushes to main (Linux and Windows)
 .github/workflows/install-scripts.yml  Tries the install scripts on Ubuntu, macOS and Windows when they change
 scripts/                           Install, update, status and removal of lrw + MCP + skill: install-cli.ps1 (Windows), install-cli.sh (macOS, Linux)
 tools/                             Release helpers: next-version.sh, sign-update.sh, new-update-signing-key.ps1
