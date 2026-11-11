@@ -113,10 +113,16 @@ internal sealed class InteractiveScript
     /// <summary>What lrw interactive returned, once <see cref="Run"/> is done.</summary>
     public int ExitCode { get; private set; }
 
-    // The virtual screen keeps the size the test gives it. By default the driver polls the real console for its size
-    // (Console.WindowWidth/Height) and takes that over: a CI runner has a console (here 30 rows) where a local test
-    // run has none. Asked over ANSI instead, nobody answers in a test, so the size stays the test's.
-    static InteractiveScript() => Driver.SizeDetection = SizeDetectionMode.AnsiQuery;
+    // The virtual screen keeps the size the test gives it, whatever console the test runs in. A CI runner has a real
+    // console (30 rows there), and the driver would take its size over in two ways: by polling Console.WindowWidth/Height,
+    // and by asking the terminal over ANSI (CSI 18t), which that console answers. DisableRealDriverIO is Terminal.Gui's
+    // switch for test harnesses: the driver neither writes to nor reads from the console, so no question goes out and
+    // no answer comes back. The ANSI size query keeps it from polling the console size, which that switch leaves on.
+    static InteractiveScript()
+    {
+        Environment.SetEnvironmentVariable("DisableRealDriverIO", "1");
+        Driver.SizeDetection = SizeDetectionMode.AnsiQuery;
+    }
 
     public InteractiveScript Press(Key key, int times = 1)
     {
